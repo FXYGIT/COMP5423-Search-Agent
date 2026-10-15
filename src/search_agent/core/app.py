@@ -1,30 +1,38 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from deepagents import create_deep_agent
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
-from pydantic import SecretStr
+
+from search_agent.core.config import AppConfig, get_config
+from search_agent.core.logging_setup import setup_logging
 
 load_dotenv()
 
 
 class CoreApp:
     def __init__(self) -> None:
-        pass
+        self._config: AppConfig | None = None
 
     async def run(self) -> None:
+
+        self._config = get_config()
+        setup_logging(self._config)
+
         pass
 
     # ------------------------------------------------------- 演示代码 👇
     def get_agent(self) -> Any:
+
+        self._config = get_config()
+
         model = ChatOpenAI(
-            api_key=SecretStr(os.getenv("LLM_API_KEY", "")),
-            base_url=os.getenv("LLM_BASE_URL", ""),
-            model=os.getenv("LLM_MODEL_NAME", ""),
+            api_key=self._config.llm.api_key,
+            base_url=self._config.llm.base_url,
+            model=self._config.llm.model,
         )
 
         search_tool = TavilySearch(
