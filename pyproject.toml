@@ -1,0 +1,66 @@
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
+
+[project]
+name = "search-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "fengxy", email = "642526109@qq.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "datasets>=5.1.0",
+    "deepagents>=0.7.25",
+    "dotenv>=0.9.9",
+    "langchain>=1.4.6",
+    "langchain-openai>=1.7.2",
+    "langchain-tavily>=0.2.18",
+]
+
+[project.scripts]
+search-agent = "search_agent:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E4",  # import 相关错误
+    "E7",  # 语句错误
+    "E9",  # 运行时错误
+    "F",   # 未使用变量、未定义名称等
+    "I",   # import 排序
+    "UP",  # 使用现代 Python 写法
+    "B",   # 常见易错写法
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+pretty = true
+show_error_codes = true
+warn_unreachable = true
+exclude = [
+    "^\\.venv/",
+    "^build/",
+    "^dist/",
+    "^scripts/",
+    "^tests/",
+]
