@@ -1,29 +1,19 @@
-from __future__ import annotations
+"""最小运行配置：只读取模型连接信息，不管理日志、预算或业务会话。"""
 
-from functools import lru_cache
-from typing import Literal
-
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LlmConfig(BaseModel):
-    """LLM 配置"""
+    """模型 API 配置。model 填服务商提供的作业指定模型 ID。"""
 
-    api_key: SecretStr = Field(..., min_length=1)
-    base_url: str = Field(..., min_length=1)
-    model: str = Field(..., min_length=1)
-
-
-class LoggingConfig(BaseModel):
-    """日志配置"""
-
-    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    file: str = "./logs/core.log"
+    api_key: SecretStr
+    base_url: str
+    model: str
 
 
 class AppConfig(BaseSettings):
-    """应用配置，统一读取环境变量和 .env 文件。"""
+    """从 .env 或环境变量读取配置，例如 LLM__API_KEY。"""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -31,11 +21,9 @@ class AppConfig(BaseSettings):
         env_nested_delimiter="__",
         extra="ignore",
     )
-
     llm: LlmConfig
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
-@lru_cache(maxsize=1)
 def get_config() -> AppConfig:
+    """在程序启动时读取一次配置；导入 core 不会自动读取 .env。"""
     return AppConfig()

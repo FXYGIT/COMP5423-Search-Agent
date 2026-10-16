@@ -1,37 +1,33 @@
+"""运行时技能读取接口，保留作业要求所需的两个操作。"""
+
 from pathlib import Path
 
-from .schemas import LoadedSkill, SkillInfo, SkillMetadata
+from .schemas import SkillInfo
 
 
 class SkillLoader:
-    """管理磁盘中的技能目录。"""
+    """发现技能说明，并按需读取 SKILL.md 正文。
+
+    不另设 manager、selector、session；选择由主模型的工具调用完成，
+    当前技能由 SearchState 保存，指令注入交给 SkillMiddleware。
+    """
 
     def __init__(self, root: Path) -> None:
-        """保存技能根目录，不在构造时加载全部技能正文。"""
-        raise NotImplementedError
+        """保存技能根目录；此处不读取全部技能正文。"""
+        self.root = root
 
     def discover(self) -> list[SkillInfo]:
-        """扫描 root 下的技能目录。
+        """扫描技能子目录，提取 SKILL.md 的 name、description 和目录位置。
 
-        要求：
-        1. 每个技能目录必须包含 SKILL.md。
-        2. 读取并校验 YAML frontmatter。
-        3. 返回技能元数据及目录位置。
-        4. 不把全部技能正文放入 Agent prompt。
-        5. 名称重复或格式错误时给出明确异常。
+        TODO：读取 YAML frontmatter，返回元数据列表供主模型选择。
+        默认技能文件符合规范，不实现重复名称、路径或格式校验。
         """
         raise NotImplementedError
 
-    def load(self, skill: SkillInfo) -> LoadedSkill:
-        """读取一个选中技能的 Markdown 正文。
+    def load(self, name: str) -> str:
+        """读取 root/name/SKILL.md 的 Markdown 正文。
 
-        要求：
-        1. 文件必须位于配置的技能根目录内。
-        2. 验证正文非空。
-        3. 返回正文，不包含 YAML frontmatter。
+        TODO：移除 YAML frontmatter 后返回正文，由 middleware 按轮次注入。
+        完整技能指令不能永久写入 agent 的基础 system prompt。
         """
-        raise NotImplementedError
-
-    def _parse_metadata(self, skill_file: Path) -> SkillMetadata:
-        """安全解析 YAML，并校验名称、描述和目录名。"""
         raise NotImplementedError
