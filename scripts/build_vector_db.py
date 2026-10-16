@@ -7,7 +7,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document as LangChainDocument
 from langchain_core.embeddings import Embeddings
 
-from src.search_agent.core.document import Document, DocumentStore
+from search_agent.core.document import Document, DocumentStore
 
 
 @dataclass(frozen=True)
@@ -29,8 +29,8 @@ class BuildConfig:
     limit_documents：可选的小规模调试限制；None 表示处理全部文档。
     """
 
-    corpus_path: Path = Path("./data/browsecomp_plus_corpus")
     embedding_model: str
+    corpus_path: Path = Path("./data/browsecomp_plus_corpus")
 
     output_dir: Path = Path("./vector_db")
     collection_name: str = "browsecomp_dense"

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class Document(BaseModel):
-    """完整文档"""
+    """固定语料中的完整文档，doc_id 是检索结果与原文访问之间的关联键。"""
 
     doc_id: str
     text: str
@@ -46,10 +46,9 @@ class FindResult(BaseModel):
     """文档内查找的返回结果。
 
     matches 为空表示未找到。
-    truncated 表示还有匹配因数量限制而未返回。
+    text 保存本次查找词句，matches 提供原文位置和上下文。
     """
 
     doc_id: str
     text: str
     matches: list[TextMatch]
-    truncated: bool = False

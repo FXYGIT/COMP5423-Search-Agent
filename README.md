@@ -1,29 +1,79 @@
 # COMP5423-Search-Agent
-COMP5423 小组作业 一个技能增强型搜索智能体，利用固定文档集合回答具有挑战性的问题。系统应将检索、大语言模型（LLM） 推理、工具使用和可复用技能整合为端到端工作流程
 
+固定文档集合搜索 Agent 的最小开发骨架，基于 LangChain。
 
-## Step 1
-拉取项目后执行
+## 运行
 
-1. 项目初始化
-
-同步依赖
-```python
+```bash
 uv sync --locked
 uv run pre-commit install
 ```
 
-下载数据集：BrowseComp-Plus 检索文档和评估集
-```python
-python ./scripts/download_browsecomp_plus_val.py 
-python ./scripts/download_browsecomp_plus_corpus.py
+复制 `.env.example` 为 `.env`，填写：
+
+```dotenv
+LLM__API_KEY=你的密钥
+LLM__BASE_URL=服务商的兼容 API 地址
+LLM__MODEL=服务商提供的 DeepSeek-V4-Flash 模型 ID
 ```
 
-## Step 2
-执行cli对话
+启动多轮流式聊天，或只问一个问题：
+
+```bash
+uv run search-agent
+uv run python -m search_agent.cli
+uv run search-agent "你好，请介绍一下你能使用的工具"
+```
+
+- 回答逐段显示，工具名称和参数在调用前显示，结果返回后立即显示。
+- 连续输入可以追问，前面的模型和工具消息会带入下一轮。
+- `/clear` 清空历史；`exit`、`quit`、`/exit` 退出；Ctrl+C 结束交互。
+- 当前工具返回 `not_implemented`，用于检查调用流程，不产生搜索证据。
+
+## 当前实现范围
+
+**已实现**：模型配置、agent 组装、工具注册、多轮对话及流式 CLI。
+
+**只保留注释和接口**：文档存储、BM25 检索、运行时技能加载、
+搜索状态/上下文管理、trajectory 和 token 统计。业务方法使用
+`NotImplementedError`，未注册的 middleware 不参与运行。
+
+因此 CLI 可以聊天并展示工具调用，但真实语料搜索和完整作业功能需要后续补齐。
+类和函数的职责、输入输出及 TODO 都在代码注释中，
+详见 [Core 与 CLI 说明](docs/2-agent-middleware.md) 和
+[检索实现说明](docs/1-retrieval-plan.md)。
+
+## 网关复用
 
 ```python
-python -m search_agent.core.app
+from search_agent.core import create_search_agent
+
+agent = create_search_agent()
+result = await agent.ainvoke({
+    "messages": [{"role": "user", "content": question}],
+})
+answer = result["messages"][-1].text
+# 连续对话时，下一次传入 result["messages"] 加上新的用户消息。
+```
+
+core 不负责输入输出或历史存储，CLI/网关各自维护会话消息。
+未使用数据库、checkpointer 或额外会话管理器。
+
+## 数据准备与检查
+
+聊天 MVP 无需下载语料；实现检索时再运行：
+
+```bash
+uv run python scripts/download_browsecomp_plus_corpus.py
+uv run python scripts/download_browsecomp_plus_val.py
+```
+
+离线测试不调用真实 API：
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy .
 ```
 
 ## 分支与合并协作流程

@@ -1,45 +1,34 @@
-from __future__ import annotations
+"""统一检索入口的骨架。MVP 只规划一种稀疏检索，不预设多后端路由。"""
 
-from typing import Literal
+from pathlib import Path
 
-from search_agent.core.retrieval.base import BaseRetriever
-from search_agent.core.retrieval.schemas import RetrievalResult
-
-RetrievalMethod = Literal["sparse", "dense", "instruction_dense", "hybrid"]
+from .schemas import RetrievalResult
 
 
 class Retriever:
-    def __init__(self, backends: dict[str, BaseRetriever]) -> None:
-        self.backends = backends
+    """负责建立/读取 BM25 索引，并按查询返回排序后的文档。
 
-    def retrieve(
-        self,
-        query: str,
-        top_k: int = 5,
-        method: RetrievalMethod = "hybrid",
-    ) -> list[RetrievalResult]:
-        """选择后端，必要时融合，最终返回 top_k 个不同文档。"""
-        raise NotImplementedError
-
-    def _fuse(
-        self,
-        rankings: list[list[RetrievalResult]],
-    ) -> list[RetrievalResult]:
-        """例如使用 RRF，避免直接相加不同后端的原始分数。"""
-        raise NotImplementedError
-
-
-def get_retriever() -> Retriever:
-    """获取共享的文档存储实例。
-
-    输入：
-        无显式参数；语料路径由项目配置提供。
-
-    输出：
-        已初始化的 DocumentStore。
-
-    预期行为：
-        首次调用时初始化，后续调用复用实例，
-        避免每次调用工具都重新加载语料。
+    作业最低要求实现一类检索；MVP 选择 BM25。
+    Agent 始终只通过 retrieve 工具调用此类。
+    稠密检索、指令检索和融合属于后续可选扩展，目前不增加抽象层。
     """
-    raise NotImplementedError
+
+    def __init__(self, index_path: str | Path) -> None:
+        """记录本地索引路径。TODO：加载已构建的 BM25 索引。"""
+        self.index_path = Path(index_path)
+
+    def build_index(self, corpus_path: str | Path) -> None:
+        """从固定语料构建 BM25 索引并保存到 index_path。
+
+        TODO：读取文档，分词，计算词频和文档频率，保存索引与原始 doc_id 映射。
+        该函数由离线准备流程调用，不在每次工具检索时重建索引。
+        """
+        raise NotImplementedError
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[RetrievalResult]:
+        """返回 BM25 分数最高的 top_k 篇不同文档。
+
+        TODO：查询分词、计算相关性、排序，并附上正文片段和来源 URL。
+        返回原始文档 ID，确保 open_document 能打开对应原文。
+        """
+        raise NotImplementedError

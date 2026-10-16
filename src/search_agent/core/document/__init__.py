@@ -1,11 +1,6 @@
-from .schemas import Document, DocumentPage, FindResult, TextMatch
-from .store import DocumentStore, get_document_store
+"""固定文档集合的数据结构和访问接口。"""
 
-__all__ = [
-    "Document",
-    "DocumentPage",
-    "TextMatch",
-    "FindResult",
-    "DocumentStore",
-    "get_document_store",
-]
+from .schemas import Document, DocumentPage, FindResult, TextMatch
+from .store import DocumentStore
+
+__all__ = ["Document", "DocumentPage", "FindResult", "TextMatch", "DocumentStore"]
