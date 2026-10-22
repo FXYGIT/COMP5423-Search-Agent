@@ -1,35 +1,36 @@
-# MVP 检索模块实现说明
+# 检索与文档扩展骨架
 
-本轮按最小 MVP 收敛，先保留一类检索的接口骨架，暂不实现算法。
-原先三类检索与向量库融合属于可选扩展，不是当前 core 的运行路径。
+固定语料为 BrowseComp-Plus。当前仅定义接口和 TODO，不加载模型、构建索引或生成假证据。
 
-## 数据
+| 文件 | 职责与输入输出 |
+| --- | --- |
+| retrieval/bm25.py | BM25：语料→索引；query/top_k→排序文档 |
+| retrieval/dense.py | Encoder 稠密检索：模型专属向量索引；query→文档 |
+| retrieval/instruction.py | LLM-based 指令嵌入：instruction + query→文档 |
+| retrieval/fusion.py | RRF：多路排名→按原始 doc_id 去重的融合排名 |
+| retrieval/retriever.py | 统一 build/load/retrieve，内部方法路由与融合 |
+| document/store.py | 原始 doc_id→全文、分页、字面查找 |
+| document/reader.py | 文档 ID + query→相关片段；定位失败时逐级回退 |
+| document/schemas.py | 原文、分页、匹配、证据和定位结果协议 |
 
-使用 BrowseComp-Plus 的固定文档集合。下载脚本将文档保存到
-`data/browsecomp_plus_corpus/`，每篇文档具有原始 ID、正文和来源 URL。
-检索只使用固定语料，不需要网络搜索。
+Agent 只获得一个 `retrieve(query, top_k=5, method="hybrid", instruction=...)` 工具：
+method 为 sparse、dense、instruction 或 hybrid。每类后端维护独立索引及模型配置；
+hybrid 内部融合三路排名，不直接相加不同方法的原始分数。
 
-## 核心接口
+检索统一返回 `list[RetrievalResult]`，每项含 doc_id、score、snippet、source_url。
+向量块命中要映射回原始文档 ID，再聚合文档排名，使阅读工具能打开对应原文。
+索引构建离线完成，查询时复用已加载模型与索引。
 
-| 位置 | 职责 | 待实现内容 |
-| --- | --- | --- |
-| document/store.py | 加载和读取语料 | 按 ID 获取全文、分段阅读、字面查找 |
-| retrieval/retriever.py | 统一检索 | 构建/加载 BM25 索引，按查询排序 |
-| retrieval/schemas.py | 检索结果 | doc_id、score、snippet、source_url |
-| tools/retrieve.py | Agent 唯一检索工具 | 调用 Retriever 并序列化结果 |
-| tools/open_document.py | 辅助工具 | 调用 DocumentStore.read |
-| tools/find_in_document.py | 辅助工具 | 调用 DocumentStore.find |
+文档回退在同一篇固定语料原文内进行：精确定位→归一化定位→段落排序→顺序分页。
+`InspectionResult` 返回采用的方法、原文片段与偏移、next_start；
+归一化或段落排序不能破坏原文坐标，也不访问来源 URL 补充外网内容。
 
-## 后续实现顺序
+实现顺序：DocumentStore → 三类检索与各自建库 → RRF/统一路由 → 阅读优化 →
+接通 retrieve/open_document/find_in_document/inspect_document。
+现有 scripts/build_vector_db.py 仍为可选建库草稿，未接入运行。
 
-1. 在 DocumentStore 加载本地语料，建立原始 ID 到文档的映射。
-2. 在 Retriever.build_index 中分词、统计词频与文档频率并保存 BM25 索引。
-3. 在 Retriever.retrieve 中查询、排序，返回 top_k 篇文档及证据片段。
-4. 替换三个工具的 not_implemented 返回，连接文档和检索接口。
-5. 用小型固定语料验证检索 ID 能打开，再在完整语料上运行。
+所有业务方法抛出 NotImplementedError；工具目前返回 not_implemented。
+仅实际搜索完成而没有命中时，才能返回成功状态和空列表。
 
-所有输入默认合法，不实现额外校验和异常恢复。
-不增加多个检索工具；以后扩展检索方式仍由同一个 retrieve 入口暴露。
-
-现有 `scripts/build_vector_db.py` 是此前保留的可选向量建库草稿，
-不在当前 MVP 中执行，BM25 实现无需它。
+题目第 1.1 节最低要求一类检索，三类全部实现可得该项满分；融合为可选方案。
+文档回退是本项目扩展，并非题目指定的独立硬性功能。

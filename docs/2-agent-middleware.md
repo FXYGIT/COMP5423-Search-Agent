@@ -1,86 +1,70 @@
-# Core 最小骨架与流式 CLI
+# Core 扩展骨架与流式 CLI
 
-## 当前范围
+当前目标是“模块边界完整、调用流程可运行”。核心业务算法只保留职责、输入输出与
+TODO；CLI、原生任务规划和工具消息配对有最小实际实现。默认业务输入合法。
 
-按本轮要求，业务算法和 middleware 的具体实现已移除，只保留详细职责说明、
-函数输入输出与 TODO。默认输入合法，不做参数校验、重试、预算限制或会话管理框架。
-真正运行的部分只有模型配置、LangChain agent 组装、工具占位入口和 CLI。
+| 模块 | 当前行为 | 后续 TODO |
+| --- | --- | --- |
+| agent.py / config.py | 读取模型配置，组装原生 LangChain agent | 随业务实现接入组件实例与配置 |
+| state.py | 完整结构化状态协议，CLI 跨轮保留 | 由各模块填充搜索进度、摘要与统计 |
+| context/messages.py | 修复模型请求视图的悬空工具调用和孤立结果 | 与未来裁剪/摘要流程协作 |
+| context/summary.py | 摘要结果与调用接口 | 增量摘要、记录实际 API 用量 |
+| context/selection.py | 状态提取与预算选择接口 | 去重证据、选择完整轮次、预算裁剪 |
+| middlewares/context.py | 同步/异步配对；before_model 返回空更新 | 进度提取、摘要、上下文选择 |
+| middlewares/skills.py | 同步/异步透传 | 目录元数据与当前技能正文按需注入 |
+| middlewares/planning.py | 复用 TodoListMiddleware 与 write_todos | 技能指导子问题拆解与进度维护 |
+| middlewares/trajectory.py | 同步/异步空更新 | 全轨迹、工具次数、全部 API token 统计 |
+| skills/loader.py | 发现、正文、资源清单与读取接口 | YAML 元数据、渐进式加载 |
+| skills/runner.py | 脚本执行输入输出协议 | 解释器、argv、cwd、超时、stdout/stderr/产物 |
+| cli/main.py / display.py | 多轮流、状态保存、Rich 展示与交互命令 | 随真实业务数据接入验证 |
 
-这是一套便于继续开发的 MVP 骨架，不代表已完成作业的检索、技能、上下文或评估功能。
+四个 middleware 均已注册；未实现的钩子透传，不调用会抛出 NotImplementedError 的业务方法。
+模型配置仍只读取 .env 的 LLM 字段，导入 core 不加载语料、索引、技能或脚本。
 
-## 目录职责
+## 工具协议
 
-```text
-core/
-  agent.py                 # 创建模型和 LangChain agent，CLI/网关共用
-  config.py                # 从 .env 读取模型 API 配置
-  state.py                 # 作业结构化状态草稿，尚未接入
-  document/
-    schemas.py             # 原文、阅读片段、文档内匹配的数据结构
-    store.py               # 原文读取/查找接口 TODO
-  retrieval/
-    schemas.py             # 统一检索结果
-    retriever.py           # BM25 建索引及检索接口 TODO
-  skills/
-    schemas.py             # 技能 name、description、directory
-    loader.py              # 发现技能和按需读取正文 TODO
-    builtin/               # 两个技能的 Markdown 说明
-  tools/
-    retrieve.py            # 唯一检索工具
-    open_document.py       # 原文阅读工具
-    find_in_document.py    # 文档内查找工具
-    load_skill.py          # 模型选择并加载技能的工具
-  middlewares/
-    context.py             # 搜索状态与上下文管理 TODO
-    skills.py              # 当前技能指令注入 TODO
-    trajectory.py          # 轨迹及调用/token 统计 TODO
-cli/
-  main.py                  # 流式显示、多轮历史和交互命令
-  __main__.py              # python -m search_agent.cli
-```
+只有一个 retrieve 工具提供四种内部模式。文档辅助工具为 open_document、
+find_in_document、inspect_document。技能工具为 list_skills、load_skill、
+read_skill_resource、run_skill_script、unload_skill，规划工具 write_todos 由原生 middleware 提供。
 
-## 作业要求如何落地
+业务工具当前返回 `{status: "not_implemented", message: ..., result: null}`。
+成功接通后使用 `{status: "ok", result: ...}`，具体结果类型见对应函数注释。
+技能脚本工具参数为 name、script、arguments、timeout_seconds；
+arguments 是 argv 列表。当前不运行进程，不虚报 exit_code=0。
 
-- **检索与工具**：作业至少需要一类检索，MVP 选择 BM25。只保留一个 Retriever，
-  暂不设计多后端抽象或融合。工具目前返回明确的 `not_implemented`。
-- **迭代循环**：由 LangChain `create_agent` 原生处理模型→工具→模型，不自行实现第二套循环。
-- **上下文管理**：保留 SearchState 和 SearchContextMiddleware 骨架。未来记录已读文档、
-  选中证据、子查询和候选答案，并对模型请求去重/裁剪。CLI 当前传递完整历史，不声称完成 Feature B。
-- **可复用技能**：保留 SkillLoader、load_skill、SkillMiddleware 和两个 SKILL.md。
-  TODO 是运行时读取和注入。主模型自行选择技能，不引入 selector、manager、session。
-- **评估统计**：TrajectoryMiddleware 保留逐次 API 用量和最终过程整理的接口。
-  当前没有生成提交 JSONL，也不展示虚假的 token/轨迹统计。
-- **界面**：CLI 已完整实现文本流、工具调用/结果展示和连续追问。
+load_skill 的 TODO 包括更新 active_skill/skill_instructions 和返回资源清单；
+资源按技能相对路径读取。unload_skill 清空当前技能。
+完整技能正文不永久写进基础 prompt，脚本执行结果与真实原文证据需要区分。
 
-三个 middleware 都不注册到当前 agent，避免运行未实现的钩子。
-工具中的占位返回是演示调用链所需的最少代码，不能算作真实搜索或技能执行。
+## 状态与上下文
 
-## CLI 如何流式工作
+messages 保留完整原始过程；模型请求视图单独处理。
+当前配对器保留已返回的 AI/tool 对，删除未返回的调用和孤立结果，不制造 ToolMessage，
+不重复执行被中断的工具，不修改原始消息。它并不表示已完成摘要或上下文压缩。
 
-`stream_turn` 同时订阅 LangChain 的 `messages` 和 `updates`：
+后续 summary 保存累计摘要，summarized_message_count 标记覆盖范围；
+摘要只压缩完整旧轮次，并保留事实来源、未决问题和任务。
+所有摘要调用也必须计入真实 API 用量与轨迹。
 
-1. `messages`：拿到模型文本片段后立即打印并 flush。
-2. `updates`：模型完成一次工具选择后打印工具名称及完整参数；
-   工具执行完成后立即打印返回内容。
-3. 将 updates 中的完整模型消息和工具消息加入历史，下一轮带上历史继续推理。
-4. 不在 updates 中重复打印已流式输出过的文本。
+## CLI
 
-工具参数在完整生成后显示，不对不完整的 JSON token 做解析。
-工具结果按执行完成的更新显示，不等整个 agent 结束才集中输出。
+`uv run search-agent` 启动；`--plain` 输出纯文本，`--verbose` 展示完整工具结果。
 
-不使用 checkpointer；CLI 在内存中保存 messages，`/clear` 直接清空。
-退出程序后不保存聊天记录。网关可调用同一工厂，并自行保存每个会话的 messages。
+- messages：逐段输出模型文本，立即 flush。
+- updates：显示完整工具参数及执行结果，不重复打印流式文字。
+- values：保存完整 SearchState，显示任务、技能及证据变化。
 
-## 已删除的设计
+工具长结果只截短终端预览，原始消息保持完整。
+/help、/todos、/skills、/evidence、/status 查看相应内容；/clear 清空完整状态；
+/exit、exit、quit 退出。生成中 Ctrl+C 中断本轮，输入时 Ctrl+C/Ctrl+D 退出。
+退出后不持久化会话，不引入额外数据库或会话框架。
+未实现的统计显示“未统计”，没有证据时显示空状态。
 
-预算与异常恢复 middleware、日志文件管理、技能 manager/selector/session、
-多后端检索抽象，以及路径校验、名称校验、元数据校验等边界逻辑。
-DeepAgents、Tavily、直接 dotenv/PyYAML 依赖已经移除。
+CLI 和网关共用 create_search_agent。网关下一轮应保留完整返回状态，并在 messages
+后追加新 HumanMessage；每个会话、每道独立评估题分别维护状态。
 
-## 验证
+## 验证边界
 
-离线测试使用真实 LangChain agent 图和脚本流式模型，验证连续追问、清空历史、
-文本在生成过程中显示、工具调用先于执行显示，以及占位结果不冒充真实证据。
-不需要调用真实模型 API。
-
-API 参考：[LangChain stream modes](https://reference.langchain.com/python/langgraph/types/StreamMode)。
+离线测试使用真实 LangChain 图和假模型，验证流式输出、工具执行前展示、
+完整状态保留与清空、同步/异步工具循环、占位结果和消息配对。
+这不等于真实检索、技能脚本、摘要或评分管线已经实现，也不代替真实模型 API 验证。

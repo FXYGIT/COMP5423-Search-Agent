@@ -10,7 +10,7 @@ class DocumentStore:
     """加载 BrowseComp-Plus 本地语料，按原始 doc_id 访问文档。
 
     后续在此建立 doc_id 到原文的映射；检索器和文档工具共用该访问层。
-    默认数据、路径和参数合法，不添加校验、恢复或缓存策略。
+    默认数据、路径和参数合法。阅读优化和查找回退由 DocumentReader 负责。
     """
 
     def __init__(self, corpus_path: str | Path) -> None:

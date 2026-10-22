@@ -1,8 +1,8 @@
-"""运行时技能读取接口，保留作业要求所需的两个操作。"""
+"""运行时技能发现、正文加载和附属资源的渐进式访问接口。"""
 
 from pathlib import Path
 
-from .schemas import SkillInfo
+from .schemas import SkillInfo, SkillResource, SkillResourceContent
 
 
 class SkillLoader:
@@ -21,6 +21,21 @@ class SkillLoader:
 
         TODO：读取 YAML frontmatter，返回元数据列表供主模型选择。
         默认技能文件符合规范，不实现重复名称、路径或格式校验。
+        """
+        raise NotImplementedError
+
+    def list_resources(self, name: str) -> list[SkillResource]:
+        """输入技能名称，返回 scripts/references/assets 内文件的相对路径和类型。
+
+        TODO：按需列出资源；load_skill 应同时返回清单，让主模型知道后续可读取什么。
+        """
+        raise NotImplementedError
+
+    def read_resource(self, name: str, path: str) -> SkillResourceContent:
+        """读取技能内相对路径，返回内容与编码。
+
+        TODO：解析相对路径，文本读取 UTF-8，二进制资产编码 base64；
+        路径必须限制在当前技能目录内，包括符号链接的最终目标。
         """
         raise NotImplementedError
 

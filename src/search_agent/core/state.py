@@ -1,8 +1,11 @@
-"""作业结构化状态的接口草稿，待上下文与统计 middleware 实现后接入。"""
+"""各模块共享的状态协议；CLI/网关跨轮保存整个 state，而非仅 messages。"""
 
 from typing import Any
 
 from langchain.agents import AgentState
+from langchain.agents.middleware.todo import Todo
+
+from search_agent.core.document.schemas import EvidencePassage
 
 
 class SearchState(AgentState, total=False):
@@ -13,14 +16,20 @@ class SearchState(AgentState, total=False):
     active_subqueries / candidate_answer：当前子问题和待验证答案。
     active_skill：本轮使用的技能名称。
     trajectory / tool_calls / total_tokens：作业评估所需过程记录和统计。
-    当前 MVP 只使用 LangChain 的 messages；以下字段尚未计算或填充。
+    summary/summarized_message_count：累计摘要和已经覆盖的原始消息数量。
+    todos：LangChain 原生任务列表；其余业务字段待对应模块实现后填充。
+    messages 始终保留完整原始过程；摘要和工具配对只改变模型请求视图。
     """
 
     visited_doc_ids: list[str]
-    selected_evidence: list[dict[str, Any]]
+    selected_evidence: list[EvidencePassage | dict[str, Any]]
     active_subqueries: list[str]
     candidate_answer: str | None
     active_skill: str | None
+    skill_instructions: str
+    summary: str
+    summarized_message_count: int
+    todos: list[Todo]
     trajectory: list[dict[str, Any]]
     tool_calls: int
     total_tokens: int
