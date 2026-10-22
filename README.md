@@ -9,13 +9,23 @@ uv sync --locked
 uv run pre-commit install
 ```
 
-复制 `.env.example` 为 `.env`，填写：
+复制 `.env.example` 为 `.env`。所有模块统一通过 `core/config.py` 的 `AppConfig` 读取，
+系统环境变量优先于 `.env`。真实聊天需要填写：
 
 ```dotenv
 LLM__API_KEY=你的密钥
 LLM__BASE_URL=服务商的兼容 API 地址
 LLM__MODEL=服务商提供的 DeepSeek-V4-Flash 模型 ID
 ```
+
+embedding、Chroma、检索、建库、文档、技能、上下文、评估和日志配置也都在 `.env` 中。
+建库与查询共用 `EMBEDDING__DENSE_MODEL` / `EMBEDDING__INSTRUCTION_MODEL`，以及
+`CHROMA__PATH` 和对应 collection。`INDEXING__CATEGORY` 决定本次构建哪类索引。
+配置示例和默认值见 [.env.example](.env.example)。
+
+Agent 和脚本统一使用 root logger，默认仅写 `logs/search_agent.log`，
+由 `LOGGING__PATH`、`LOGGING__LEVEL` 控制。日志格式为时间、级别、模块、消息；
+不添加控制台日志 handler，CLI 的 Rich/流式交互照常显示。
 
 启动多轮流式聊天，或只问一个问题：
 
@@ -82,6 +92,24 @@ uv run pytest
 uv run ruff check .
 uv run mypy .
 ```
+
+## 评估骨架
+
+离线建库默认写入当前目录的 `./chroma`。评估入口读取本地验证集，每题使用独立状态，
+生成 `test_prediction.jsonl` 和 `evaluation_report.json/md`。
+
+```bash
+uv run python scripts/build_vector_db.py
+uv run python scripts/run_predictions.py
+uv run python scripts/evaluate_predictions.py
+```
+
+数据读取、JSONL 读写、normalized EM、用量汇总和报告输出已实现。
+**建库、embedding、Chroma 工具适配和完整轨迹统计仍为 TODO**，前两条命令会明确提示
+尚未接通，不会生成假预测。脚本只写日志，失败以非零状态退出；原因见日志文件。
+已有预测文件可以直接复评。评估路径、split、题数限制、输出文件均用 `EVALUATION__*` 配置。
+参考答案只用于评分；验证集文件不等于正式测试集提交。
+接口和参数见 [评估模块说明](docs/5-evaluation-scaffold.md)。
 
 ## 分支与合并协作流程
 

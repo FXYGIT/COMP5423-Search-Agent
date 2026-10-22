@@ -16,10 +16,11 @@ class DocumentReader:
         """输入共用的语料访问层，避免重新加载整库。"""
         self.store = store
 
-    def inspect(self, doc_id: str, query: str, max_chars: int = 4000) -> InspectionResult:
+    def inspect(self, doc_id: str, query: str, max_chars: int | None = None) -> InspectionResult:
         """输入原始文档 ID、定位问题和长度预算，返回片段、定位方式及续读位置。
 
         TODO：在单篇原文内依次尝试定位策略；使用 EvidencePassage 返回真实偏移。
         兜底只打开同一固定语料文档，不访问 source_url 获取额外内容。
+        max_chars 默认读取 self.store.config.max_chars。
         """
         raise NotImplementedError

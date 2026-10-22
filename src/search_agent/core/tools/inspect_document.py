@@ -6,10 +6,11 @@ from langchain.tools import tool
 
 
 @tool
-def inspect_document(doc_id: str, query: str, max_chars: int = 4000) -> dict[str, Any]:
+def inspect_document(doc_id: str, query: str, max_chars: int | None = None) -> dict[str, Any]:
     """在指定文档内选择与 query 有关的证据；精确定位失败时逐级回退。
 
     TODO：调用 DocumentReader.inspect。成功返回 {status: "ok", result: InspectionResult}，
     包含原文片段、偏移、定位方式和续读位置；不在全库检索，不抓取外网。
+    max_chars 默认使用 DOCUMENT__MAX_CHARS。
     """
     return {"status": "not_implemented", "message": "文档定位与回退尚未实现。", "result": None}

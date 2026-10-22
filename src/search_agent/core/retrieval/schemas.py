@@ -1,8 +1,6 @@
-from typing import Literal
-
 from pydantic import BaseModel
 
-RetrievalMethod = Literal["sparse", "dense", "instruction", "hybrid"]
+from search_agent.core.config import RetrievalMethod as RetrievalMethod
 
 
 class RetrievalResult(BaseModel):

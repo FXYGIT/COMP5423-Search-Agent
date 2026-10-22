@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from search_agent.core.config import get_config
+
 from .schemas import SkillInfo, SkillResource, SkillResourceContent
 
 
@@ -12,9 +14,9 @@ class SkillLoader:
     当前技能由 SearchState 保存，指令注入交给 SkillMiddleware。
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path | None = None) -> None:
         """保存技能根目录；此处不读取全部技能正文。"""
-        self.root = root
+        self.root = root if root is not None else get_config().skills.root
 
     def discover(self) -> list[SkillInfo]:
         """扫描技能子目录，提取 SKILL.md 的 name、description 和目录位置。

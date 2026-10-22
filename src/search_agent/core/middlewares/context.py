@@ -6,6 +6,7 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langgraph.runtime import Runtime
 
+from search_agent.core.config import ContextConfig, get_config
 from search_agent.core.context.messages import repair_tool_messages
 from search_agent.core.state import SearchState
 
@@ -19,6 +20,10 @@ class SearchContextMiddleware(AgentMiddleware[SearchState, None]):
     """
 
     state_schema = SearchState
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        """记录共享的选择预算与摘要阈值，业务算法仍为 TODO。"""
+        self.config = config or get_config().context
 
     def before_model(self, state: SearchState, runtime: Runtime[None]) -> dict[str, Any]:
         """在下一次推理前，读取新增工具结果并返回 SearchState 的更新字段。
