@@ -219,5 +219,25 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# LaTeX auxiliary files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.bcf
+*.run.xml
+*.xdv
+main.pdf
+
 # 项目要求
 data
+logs
+

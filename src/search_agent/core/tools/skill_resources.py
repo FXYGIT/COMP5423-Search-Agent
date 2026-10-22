@@ -27,7 +27,7 @@ def read_skill_resource(name: str, path: str) -> dict[str, Any]:
 
 @tool
 def run_skill_script(
-    name: str, script: str, arguments: list[str], timeout_seconds: int = 30
+    name: str, script: str, arguments: list[str], timeout_seconds: int | None = None
 ) -> dict[str, Any]:
     """执行已加载技能的 scripts/ 内脚本，参数使用列表而非 shell 命令。
 
@@ -35,6 +35,7 @@ def run_skill_script(
     timeout_seconds) → {status: "ok", result: SkillScriptResult}；
     输出 stdout、stderr、exit_code、timed_out、artifacts，由模型检查实际是否成功。
     当前不创建进程，不执行任何脚本，也不声称已成功。
+    timeout_seconds 默认使用 SKILLS__TIMEOUT_SECONDS。
     """
     return {"status": "not_implemented", "message": "技能脚本执行尚未实现。", "result": None}
 

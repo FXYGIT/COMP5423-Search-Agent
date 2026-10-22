@@ -5,7 +5,8 @@ TODO；CLI、原生任务规划和工具消息配对有最小实际实现。默�
 
 | 模块 | 当前行为 | 后续 TODO |
 | --- | --- | --- |
-| agent.py / config.py | 读取模型配置，组装原生 LangChain agent | 随业务实现接入组件实例与配置 |
+| agent.py / config.py | 统一读取 .env 中的各模块配置，组装原生 LangChain agent | 随业务实现接入组件实例 |
+| logging_setup.py | 设置只有 FileHandler 的 root logger，统一日志格式 | 无控制台日志输出 |
 | state.py | 完整结构化状态协议，CLI 跨轮保留 | 由各模块填充搜索进度、摘要与统计 |
 | context/messages.py | 修复模型请求视图的悬空工具调用和孤立结果 | 与未来裁剪/摘要流程协作 |
 | context/summary.py | 摘要结果与调用接口 | 增量摘要、记录实际 API 用量 |
@@ -19,7 +20,9 @@ TODO；CLI、原生任务规划和工具消息配对有最小实际实现。默�
 | cli/main.py / display.py | 多轮流、状态保存、Rich 展示与交互命令 | 随真实业务数据接入验证 |
 
 四个 middleware 均已注册；未实现的钩子透传，不调用会抛出 NotImplementedError 的业务方法。
-模型配置仍只读取 .env 的 LLM 字段，导入 core 不加载语料、索引、技能或脚本。
+配置统一在 core/config.py 定义，覆盖 LLM、embedding、Chroma、检索、建库、文档、技能、
+上下文、评估和日志。导入 core 不读取 .env 或加载业务数据；运行入口按需读取配置快照。
+只执行离线复评时无需 LLM 密钥。所有运行日志写文件，CLI 负责终端交互。
 
 ## 工具协议
 

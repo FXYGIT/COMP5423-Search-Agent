@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from search_agent.core.config import AppConfig, get_config
+
 from .schemas import RetrievalResult
 
 
@@ -12,10 +14,12 @@ class InstructionRetriever:
     TODO：独立索引和模型配置；不能直接复用其他模型产生的向量。
     """
 
-    def __init__(self, index_path: str | Path, model_name: str) -> None:
-        """记录指令嵌入模型和索引目录，保持构造阶段无 IO。"""
-        self.index_path = Path(index_path)
-        self.model_name = model_name
+    def __init__(self, config: AppConfig | None = None) -> None:
+        """使用共享指令模型与专属 collection，构造时不加载模型或索引。"""
+        self.config = config or get_config()
+        self.index_path = self.config.chroma.path
+        self.model_name = self.config.embedding.instruction_model
+        self.collection_name = self.config.chroma.instruction_collection
 
     def build_index(self, corpus_path: str | Path) -> None:
         """TODO：按模型要求编码语料，保存索引、块偏移和原始 doc_id。"""
@@ -26,7 +30,11 @@ class InstructionRetriever:
         raise NotImplementedError
 
     def retrieve(
-        self, query: str, top_k: int = 5, instruction: str = "Find evidence answering the query."
+        self, query: str, top_k: int | None = None, instruction: str | None = None
     ) -> list[RetrievalResult]:
-        """TODO：使用 instruction + query 编码，召回并归并成排序后的文档列表。"""
+        """TODO：使用 instruction + query 编码，返回按原始文档归并的排名。
+
+        默认使用 config.retrieval.top_k / config.embedding.query_instruction；
+        经共享 chroma 模块以 category=instruction 加载模型和集合。
+        """
         raise NotImplementedError

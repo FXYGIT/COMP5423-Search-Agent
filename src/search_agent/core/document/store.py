@@ -3,6 +3,8 @@
 from collections.abc import Iterator
 from pathlib import Path
 
+from search_agent.core.config import get_config
+
 from .schemas import Document, DocumentPage, FindResult
 
 
@@ -13,9 +15,10 @@ class DocumentStore:
     默认数据、路径和参数合法。阅读优化和查找回退由 DocumentReader 负责。
     """
 
-    def __init__(self, corpus_path: str | Path) -> None:
+    def __init__(self, corpus_path: str | Path | None = None) -> None:
         """记录语料路径。TODO：加载本地数据集并建立文档 ID 映射。"""
-        self.corpus_path = Path(corpus_path)
+        self.config = get_config().document
+        self.corpus_path = Path(corpus_path) if corpus_path is not None else self.config.corpus_path
 
     def get(self, doc_id: str) -> Document:
         """根据原始文档 ID 返回全文及来源 URL，供工具读取和证据引用。"""
@@ -25,11 +28,12 @@ class DocumentStore:
         """逐篇提供原文，供检索索引构建使用，不在此进行分词或打分。"""
         raise NotImplementedError
 
-    def read(self, doc_id: str, start: int = 0, max_chars: int = 4000) -> DocumentPage:
+    def read(self, doc_id: str, start: int = 0, max_chars: int | None = None) -> DocumentPage:
         """读取从 start 开始的原文片段。
 
         TODO：通过 get 获取原文，切出 max_chars 个字符，返回区间和 next_start。
         使用原文字符偏移，便于 find 的定位结果直接交给阅读工具。
+        未提供 max_chars 时读取 self.config.max_chars。
         """
         raise NotImplementedError
 

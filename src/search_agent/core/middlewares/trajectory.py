@@ -1,11 +1,14 @@
 """作业第 4 节：机器可读轨迹、工具调用次数和 API token 用量的实现位置。"""
 
+import logging
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.runtime import Runtime
 
 from search_agent.core.state import SearchState
+
+logger = logging.getLogger(__name__)
 
 
 class TrajectoryMiddleware(AgentMiddleware[SearchState, None]):
@@ -20,6 +23,7 @@ class TrajectoryMiddleware(AgentMiddleware[SearchState, None]):
 
     def after_model(self, state: SearchState, runtime: Runtime[None]) -> dict[str, Any]:
         """TODO：累加本次模型响应的 usage.total_tokens 和发起的工具调用数量。"""
+        logger.debug("模型步骤完成，当前消息数=%d", len(state["messages"]))
         return {}
 
     def after_agent(self, state: SearchState, runtime: Runtime[None]) -> dict[str, Any]:
@@ -28,6 +32,7 @@ class TrajectoryMiddleware(AgentMiddleware[SearchState, None]):
         批量评估入口再加上 id、question、answer，写入提交 JSONL。
         当前多轮 CLI 只演示交互，不生成评估文件。
         """
+        logger.info("Agent 本轮完成，消息数=%d", len(state["messages"]))
         return {}
 
     async def aafter_model(self, state: SearchState, runtime: Runtime[None]) -> dict[str, Any]:
