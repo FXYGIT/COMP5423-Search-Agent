@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -52,3 +54,26 @@ class FindResult(BaseModel):
     doc_id: str
     text: str
     matches: list[TextMatch]
+
+
+class EvidencePassage(BaseModel):
+    """可引用的原文证据，偏移始终指向固定语料原文，text 不使用生成式改写。"""
+
+    doc_id: str
+    text: str
+    start: int
+    end: int
+    source_url: str | None = None
+
+
+class InspectionResult(BaseModel):
+    """文档内定位结果；method 表示采用的定位方式，而非全库检索方法。
+
+    next_start 允许低置信度时继续顺序阅读，passages 为空仅代表已执行但无匹配。
+    """
+
+    doc_id: str
+    query: str
+    method: Literal["exact", "normalized", "passage_rank", "sequential"]
+    passages: list[EvidencePassage]
+    next_start: int | None = None

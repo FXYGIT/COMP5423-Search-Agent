@@ -1,6 +1,6 @@
 # COMP5423-Search-Agent
 
-固定文档集合搜索 Agent 的最小开发骨架，基于 LangChain。
+固定文档集合搜索 Agent 的可运行开发骨架，基于 LangChain；业务算法保留接口与 TODO。
 
 ## 运行
 
@@ -23,40 +23,47 @@ LLM__MODEL=服务商提供的 DeepSeek-V4-Flash 模型 ID
 uv run search-agent
 uv run python -m search_agent.cli
 uv run search-agent "你好，请介绍一下你能使用的工具"
+uv run search-agent --plain --verbose
 ```
 
 - 回答逐段显示，工具名称和参数在调用前显示，结果返回后立即显示。
 - 连续输入可以追问，前面的模型和工具消息会带入下一轮。
-- `/clear` 清空历史；`exit`、`quit`、`/exit` 退出；Ctrl+C 结束交互。
-- 当前工具返回 `not_implemented`，用于检查调用流程，不产生搜索证据。
+- Rich 面板显示工具调用、任务计划、当前技能和支持证据；长工具结果默认截短预览。
+- `/help` 查看命令；`/todos`、`/skills`、`/evidence`、`/status` 查看对应状态。
+- `/clear` 清空完整状态；`exit`、`quit`、`/exit` 退出；生成中 Ctrl+C 中断本轮。
+- `--plain` 使用纯文本；`--verbose` 展示完整工具结果。
+- 检索、文档、技能工具返回 `not_implemented`，不产生假证据；`write_todos` 可实际使用。
 
 ## 当前实现范围
 
-**已实现**：模型配置、agent 组装、工具注册、多轮对话及流式 CLI。
+**已实现**：模型配置、agent 组装、工具注册、多轮完整状态保存、流式 CLI、
+原生 TODO 规划，以及模型请求副本中的悬空工具调用/孤立结果处理。
 
-**只保留注释和接口**：文档存储、BM25 检索、运行时技能加载、
-搜索状态/上下文管理、trajectory 和 token 统计。业务方法使用
-`NotImplementedError`，未注册的 middleware 不参与运行。
+**只保留注释和接口**：文档存储、相关片段选择与定位回退；BM25、稠密、指令检索和
+RRF 融合；技能发现、正文/资源加载与脚本执行；证据选择、预算裁剪、增量摘要；
+trajectory 和 token 统计。业务方法使用 `NotImplementedError`；middleware 已注册，
+未实现部分透传，不在聊天时调用这些业务方法。
 
 因此 CLI 可以聊天并展示工具调用，但真实语料搜索和完整作业功能需要后续补齐。
 类和函数的职责、输入输出及 TODO 都在代码注释中，
 详见 [Core 与 CLI 说明](docs/2-agent-middleware.md) 和
-[检索实现说明](docs/1-retrieval-plan.md)。
+[检索实现说明](docs/1-retrieval-plan.md) 和 [扩展骨架说明](docs/4-extension-scaffold.md)。
 
 ## 网关复用
 
 ```python
 from search_agent.core import create_search_agent
+from langchain_core.messages import HumanMessage
 
 agent = create_search_agent()
-result = await agent.ainvoke({
-    "messages": [{"role": "user", "content": question}],
-})
-answer = result["messages"][-1].text
-# 连续对话时，下一次传入 result["messages"] 加上新的用户消息。
+state = {"messages": []}  # 每个会话单独维护
+state["messages"].append(HumanMessage(content=question))
+state = await agent.ainvoke(state)
+answer = state["messages"][-1].text
+# 连续对话时保留完整 state，再向 messages 追加新 HumanMessage。
 ```
 
-core 不负责输入输出或历史存储，CLI/网关各自维护会话消息。
+core 不负责终端输入输出或持久化，CLI/网关各自维护完整会话状态。
 未使用数据库、checkpointer 或额外会话管理器。
 
 ## 数据准备与检查

@@ -1,34 +1,40 @@
-"""统一检索入口的骨架。MVP 只规划一种稀疏检索，不预设多后端路由。"""
+"""三类检索与融合的统一入口，业务算法待实现。"""
 
 from pathlib import Path
 
-from .schemas import RetrievalResult
+from .schemas import RetrievalMethod, RetrievalResult
 
 
 class Retriever:
-    """负责建立/读取 BM25 索引，并按查询返回排序后的文档。
+    """统一协调 BM25、encoder dense、instruction dense 和 RRF。
 
-    作业最低要求实现一类检索；MVP 选择 BM25。
-    Agent 始终只通过 retrieve 工具调用此类。
-    稠密检索、指令检索和融合属于后续可选扩展，目前不增加抽象层。
+    TODO：组装三个后端，按 method 路由；hybrid 多路召回后进行 RRF 融合。
+    每个后端使用独立索引子目录，不增加 Agent 工具。构造阶段不加载重型模型。
     """
 
     def __init__(self, index_path: str | Path) -> None:
-        """记录本地索引路径。TODO：加载已构建的 BM25 索引。"""
+        """记录索引根目录。TODO：接收三类后端各自的模型配置。"""
         self.index_path = Path(index_path)
 
-    def build_index(self, corpus_path: str | Path) -> None:
-        """从固定语料构建 BM25 索引并保存到 index_path。
-
-        TODO：读取文档，分词，计算词频和文档频率，保存索引与原始 doc_id 映射。
-        该函数由离线准备流程调用，不在每次工具检索时重建索引。
-        """
+    def build_index(self, corpus_path: str | Path, method: RetrievalMethod = "hybrid") -> None:
+        """TODO：离线构建选定方法的索引；hybrid 构建三类索引并保存配置。"""
         raise NotImplementedError
 
-    def retrieve(self, query: str, top_k: int = 5) -> list[RetrievalResult]:
-        """返回 BM25 分数最高的 top_k 篇不同文档。
+    def load_index(self, method: RetrievalMethod = "hybrid") -> None:
+        """TODO：只加载所选方法的模型与索引；查询之间共用实例。"""
+        raise NotImplementedError
 
-        TODO：查询分词、计算相关性、排序，并附上正文片段和来源 URL。
-        返回原始文档 ID，确保 open_document 能打开对应原文。
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        method: RetrievalMethod = "hybrid",
+        instruction: str = "Find evidence answering the query.",
+    ) -> list[RetrievalResult]:
+        """输入搜索词、数量、方法和检索意图，输出统一排序结果。
+
+        TODO：sparse/dense/instruction 路由对应后端；hybrid 多路召回再融合。
+        instruction 仅用于指令检索分支。返回原始 doc_id 供 DocumentStore 读取。
+        真正完成查询但无命中时才返回 []；未实现必须抛出 NotImplementedError。
         """
         raise NotImplementedError

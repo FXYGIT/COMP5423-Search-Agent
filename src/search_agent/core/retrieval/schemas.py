@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel
+
+RetrievalMethod = Literal["sparse", "dense", "instruction", "hybrid"]
 
 
 class RetrievalResult(BaseModel):
