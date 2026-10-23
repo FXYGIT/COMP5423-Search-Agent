@@ -26,6 +26,10 @@ class StreamingModel(FakeMessagesListChatModel):
         else:
             for word in response.text.split(" "):
                 yield ChatGenerationChunk(message=AIMessageChunk(content=word + " "))
+        if response.usage_metadata is not None:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(content="", usage_metadata=response.usage_metadata)
+            )
 
 
 def test_stream_turn_prints_text_and_tools_before_execution(capsys):

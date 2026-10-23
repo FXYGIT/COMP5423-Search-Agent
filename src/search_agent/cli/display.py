@@ -108,7 +108,8 @@ class TerminalView:
             self.console.print(table)
 
     def status(self, state: SearchState) -> None:
-        """未实现的统计显示“未统计”，避免伪报 0 token 或 0 次工具调用。"""
+        """展示真实累计统计；缺少 API usage 时明确提示，而不是显示 0 或 None。"""
+        tokens = state.get("total_tokens")
         self.panel(
             "会话状态",
             f"消息：{len(state.get('messages', []))}\n"
@@ -116,7 +117,7 @@ class TerminalView:
             f"技能：{state.get('active_skill') or '无'}\n"
             f"摘要：{state.get('summary') or '未生成（摘要算法待实现）'}\n"
             f"工具调用：{state.get('tool_calls', '未统计')}\n"
-            f"API tokens：{state.get('total_tokens', '未统计')}",
+            f"API tokens：{tokens if tokens is not None else '未统计（缺少 API usage）'}",
         )
 
     def help(self) -> None:

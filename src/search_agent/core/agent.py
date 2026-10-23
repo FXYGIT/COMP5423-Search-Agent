@@ -62,7 +62,7 @@ def create_search_agent(
     CLI/网关跨轮传入完整 SearchState，使用 invoke/ainvoke/stream/astream。
     模型和工具参数用于离线测试，也方便后续接入已实现的业务模块。
     LangChain 负责模型→工具→模型的循环，不再自行包装一套循环。
-    middleware 注册后未实现部分透传；仅规划与工具配对有最小实际逻辑。
+    middleware 包含规划、工具配对与主 Agent 轨迹记录，其余业务仍为 TODO。
     system_prompt 允许评估入口要求最终只返回简短答案，聊天仍使用默认提示词。
     """
     config = config or get_config()
@@ -76,11 +76,13 @@ def create_search_agent(
             base_url=config.llm.base_url,
             model=config.llm.model,
             streaming=True,
+            stream_usage=True,
         )
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         SearchContextMiddleware(config.context),
         SkillMiddleware(),
         TodoListMiddleware(),
+        # 最内层记录最终注入后的 system prompt，保持在请求包装链末尾。
         TrajectoryMiddleware(),
     ]
     agent = create_agent(

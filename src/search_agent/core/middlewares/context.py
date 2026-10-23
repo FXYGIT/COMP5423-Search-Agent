@@ -30,7 +30,8 @@ class SearchContextMiddleware(AgentMiddleware[SearchState, None]):
 
         TODO：提取 doc_id/证据，更新 active_subqueries/candidate_answer。
         TODO：接 context.selection.extract_search_progress；达到预算阈值时调用
-        ConversationSummarizer，更新 summary/summarized_message_count，并记录摘要用量。
+        ConversationSummarizer，更新 summary/summarized_message_count，将其 trajectory
+        追加到 state.trajectory 并用 trajectory_totals 重算用量；不改变主消息记录游标。
         当前返回空更新，不生成假进度或摘要。
         """
         return {}

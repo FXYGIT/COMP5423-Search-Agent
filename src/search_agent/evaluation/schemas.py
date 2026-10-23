@@ -1,8 +1,10 @@
 """验证/测试数据、提交文件及本地报告的输入输出协议。"""
 
-from typing import Any
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from search_agent.core.trajectory import TrajectoryEntry, trajectory_totals
 
 
 class EvaluationQuestion(BaseModel):
@@ -24,9 +26,21 @@ class PredictionRecord(BaseModel):
     id: str
     question: str
     answer: str
-    trajectory: list[dict[str, Any]] = Field(min_length=1)
+    trajectory: list[TrajectoryEntry] = Field(min_length=1)
     tool_calls: int = Field(ge=0)
     total_tokens: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_totals(self) -> Self:
+        """提交总数必须来自逐条轨迹，缺少 usage 时不能用部分用量冒充总量。"""
+        calls, tokens = trajectory_totals(self.trajectory)
+        if tokens is None:
+            raise ValueError("trajectory 中的模型响应缺少 API usage。")
+        if self.tool_calls != calls:
+            raise ValueError("tool_calls 必须等于 trajectory 中发起的工具调用数量。")
+        if self.total_tokens != tokens:
+            raise ValueError("total_tokens 必须等于 trajectory 中所有 usage.total_tokens 之和。")
+        return self
 
 
 class QuestionResult(BaseModel):

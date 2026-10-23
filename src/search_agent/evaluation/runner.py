@@ -50,11 +50,14 @@ def prediction_from_state(question: EvaluationQuestion, state: dict[str, Any]) -
     """读取 Agent 最终状态，将真实结果组装为提交记录。
 
     统计生产者是 TrajectoryMiddleware；评估不猜 token，也不拼造缺失轨迹。
-    TODO：middleware 实现时涵盖主模型、技能辅助模型、摘要等全部调用与实际 usage。
+    middleware 提供示例格式的 role 消息，PredictionRecord 校验逐条 usage 与总数。
+    TODO：辅助模型/摘要实现后，也必须通过共用轨迹协议记录。
     """
     required = {"trajectory", "tool_calls", "total_tokens"}
     if not required.issubset(state):
         raise NotImplementedError("TrajectoryMiddleware 尚未提供完整轨迹和实际 API 用量。")
+    if state["total_tokens"] is None:
+        raise ValueError("模型响应缺少 API usage，不能导出完整 total_tokens；请检查流式用量支持。")
     final = state["messages"][-1]
     if not isinstance(final, AIMessage) or final.tool_calls:
         raise ValueError(f"题目 {question.id} 尚未产生最终答案。")
