@@ -6,6 +6,7 @@ from langchain.agents import AgentState
 from langchain.agents.middleware.todo import Todo
 
 from search_agent.core.document.schemas import EvidencePassage
+from search_agent.core.trajectory import TrajectoryEntry
 
 
 class SearchState(AgentState, total=False):
@@ -15,7 +16,9 @@ class SearchState(AgentState, total=False):
     selected_evidence：选择保留的证据，每项含 doc_id、text、source_url。
     active_subqueries / candidate_answer：当前子问题和待验证答案。
     active_skill：本轮使用的技能名称。
-    trajectory / tool_calls / total_tokens：作业评估所需过程记录和统计。
+    trajectory：与提交示例一致的 role 消息；与模型请求裁剪视图分开保存。
+    trajectory_message_count：已记录的原始消息数，避免跨轮重复追加。
+    tool_calls / total_tokens：累计真实调用统计；缺少 API usage 时 total_tokens=None。
     summary/summarized_message_count：累计摘要和已经覆盖的原始消息数量。
     todos：LangChain 原生任务列表；其余业务字段待对应模块实现后填充。
     messages 始终保留完整原始过程；摘要和工具配对只改变模型请求视图。
@@ -30,6 +33,7 @@ class SearchState(AgentState, total=False):
     summary: str
     summarized_message_count: int
     todos: list[Todo]
-    trajectory: list[dict[str, Any]]
+    trajectory: list[TrajectoryEntry]
+    trajectory_message_count: int
     tool_calls: int
-    total_tokens: int
+    total_tokens: int | None

@@ -47,11 +47,12 @@ uv run search-agent --plain --verbose
 ## 当前实现范围
 
 **已实现**：模型配置、agent 组装、工具注册、多轮完整状态保存、流式 CLI、
-原生 TODO 规划，以及模型请求副本中的悬空工具调用/孤立结果处理。
+原生 TODO 规划、模型请求副本中的悬空工具调用/孤立结果处理，以及与提交示例一致的
+主 Agent 消息轨迹、工具调用次数和实际 API usage 统计。
 
 **只保留注释和接口**：文档存储、相关片段选择与定位回退；BM25、稠密、指令检索和
 RRF 融合；技能发现、正文/资源加载与脚本执行；证据选择、预算裁剪、增量摘要；
-trajectory 和 token 统计。业务方法使用 `NotImplementedError`；middleware 已注册，
+摘要/技能辅助模型的轨迹接入。业务方法使用 `NotImplementedError`；middleware 已注册，
 未实现部分透传，不在聊天时调用这些业务方法。
 
 因此 CLI 可以聊天并展示工具调用，但真实语料搜索和完整作业功能需要后续补齐。
@@ -105,7 +106,10 @@ uv run python scripts/evaluate_predictions.py
 ```
 
 数据读取、JSONL 读写、normalized EM、用量汇总和报告输出已实现。
-**建库、embedding、Chroma 工具适配和完整轨迹统计仍为 TODO**，前两条命令会明确提示
+轨迹 schema 对齐根目录 `test_prediction.jsonl` 示例：system/user/assistant/tool 消息、
+JSON 字符串工具参数、每次 assistant 的 usage。主 Agent 已记录实际调用；
+流式模型启用 `stream_usage=True`，若服务端未返回 usage 则聊天继续、评估拒绝导出。
+**建库、embedding、Chroma 工具适配及辅助 LLM 轨迹接入仍为 TODO**，前两条命令会明确提示
 尚未接通，不会生成假预测。脚本只写日志，失败以非零状态退出；原因见日志文件。
 已有预测文件可以直接复评。评估路径、split、题数限制、输出文件均用 `EVALUATION__*` 配置。
 参考答案只用于评分；验证集文件不等于正式测试集提交。

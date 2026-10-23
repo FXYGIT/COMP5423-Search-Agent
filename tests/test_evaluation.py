@@ -9,6 +9,42 @@ import pytest
 from langchain_core.messages import AIMessage
 
 
+def trace(question, answer, calls, tokens):
+    """离线评分夹具也遵循真实提交格式，不再用空字典代替轨迹。"""
+    entries = [
+        {"role": "system", "content": "Answer the question."},
+        {"role": "user", "content": question},
+    ]
+    if calls:
+        entries.append(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": str(i),
+                        "type": "function",
+                        "function": {"name": "lookup", "arguments": "{}"},
+                    }
+                    for i in range(calls)
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        )
+        entries.extend(
+            {"role": "tool", "tool_call_id": str(i), "name": "lookup", "content": answer}
+            for i in range(calls)
+        )
+    entries.append(
+        {
+            "role": "assistant",
+            "content": answer,
+            "usage": {"prompt_tokens": tokens - 1, "completion_tokens": 1, "total_tokens": tokens},
+        }
+    )
+    return entries
+
+
 def test_normalized_em_and_total_usage():
     from search_agent.evaluation.metrics import evaluate
     from search_agent.evaluation.schemas import EvaluationQuestion, PredictionRecord
@@ -19,13 +55,18 @@ def test_normalized_em_and_total_usage():
     ]
     records = [
         PredictionRecord(
-            id="b", question="Name?", answer="Bob", trajectory=[{}], tool_calls=3, total_tokens=80
+            id="b",
+            question="Name?",
+            answer="Bob",
+            trajectory=trace("Name?", "Bob", 3, 80),
+            tool_calls=3,
+            total_tokens=80,
         ),
         PredictionRecord(
             id="a",
             question="Capital?",
             answer=" PARIS! ",
-            trajectory=[{}],
+            trajectory=trace("Capital?", " PARIS! ", 1, 20),
             tool_calls=1,
             total_tokens=20,
         ),
@@ -55,7 +96,12 @@ def test_unlabelled_test_set_has_no_accuracy():
         [EvaluationQuestion(id="a", question="Q")],
         [
             PredictionRecord(
-                id="a", question="Q", answer="A", trajectory=[{}], tool_calls=0, total_tokens=5
+                id="a",
+                question="Q",
+                answer="A",
+                trajectory=trace("Q", "A", 0, 5),
+                tool_calls=0,
+                total_tokens=5,
             )
         ],
     )
@@ -75,7 +121,7 @@ def test_batch_isolates_questions_and_writes_six_fields(tmp_path):
             assert "secret" not in state["messages"][0].content
             return {
                 "messages": [*state["messages"], AIMessage(content="Paris")],
-                "trajectory": [{"type": "model", "text": "Paris"}],
+                "trajectory": trace(state["messages"][0].content, "Paris", 1, 10),
                 "tool_calls": 1,
                 "total_tokens": 10,
             }
@@ -118,7 +164,12 @@ def test_local_dataset_and_reports(tmp_path):
         questions,
         [
             PredictionRecord(
-                id="a", question="Q", answer="a", trajectory=[{}], tool_calls=2, total_tokens=30
+                id="a",
+                question="Q",
+                answer="a",
+                trajectory=trace("Q", "a", 2, 30),
+                tool_calls=2,
+                total_tokens=30,
             )
         ],
     )
@@ -139,7 +190,7 @@ def test_local_dataset_and_reports(tmp_path):
                 id="a",
                 question="Q",
                 answer="a",
-                trajectory=[{"type": "test_fixture"}],
+                trajectory=trace("Q", "a", 2, 30),
                 tool_calls=2,
                 total_tokens=30,
             )

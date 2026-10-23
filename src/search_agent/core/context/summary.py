@@ -3,16 +3,20 @@
 from langchain_core.messages import AnyMessage
 from pydantic import BaseModel
 
+from search_agent.core.trajectory import TrajectoryEntry
+
 
 class SummaryResult(BaseModel):
-    """累计摘要、新覆盖的消息数及本次摘要 API 的实际 token 用量。
+    """累计摘要、新覆盖的消息数及本次摘要调用的完整轨迹。
 
-    total_tokens 必须进入整题统计；使用摘要不能使轨迹丢失原始消息或摘要调用。
+    TODO：记录实际 system/user/assistant 消息及 assistant.usage，追加到主 state.trajectory。
+    总量通过 trajectory_totals 统一计算，不能只提供一个孤立的 total_tokens 数字。
+    辅助调用不进入主 messages，因此不能增加 trajectory_message_count。
     """
 
     summary: str
     summarized_message_count: int
-    total_tokens: int
+    trajectory: list[TrajectoryEntry]
 
 
 class ConversationSummarizer:
