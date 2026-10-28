@@ -6,7 +6,7 @@ Agent 工厂可复用，但每题传入全新的 state；参考答案只用于�
 
 已实现轻量流程接线、数据读写、normalized EM、报告输出，以及主 Agent 的消息轨迹
 与真实用量统计。embedding 创建、Chroma 工具适配、索引构建仍为明确的 TODO。
-摘要/技能辅助 LLM 尚未实现，接入时还需记录它们的实际消息和 usage。
+摘要辅助调用已通过上下文模块追加真实消息和 usage；技能辅助 LLM 尚待 C 接入。
 这些接口补齐前，默认预测命令会报告尚未实现，不创建伪造预测或填入虚假的 0 token。
 
 模块约定：
@@ -56,7 +56,8 @@ TrajectoryMiddleware 位于模型包装链最内层，记录包括 TODO 提示�
 顶层 tool_calls 等于所有 assistant.tool_calls 长度之和，total_tokens 等于所有
 assistant.usage.total_tokens 之和。流式请求启用 stream_usage，收到完整响应后计一次。
 任何模型响应缺少 usage 时，CLI 可继续聊天并显示未统计，评估拒绝写出预测。
-辅助摘要/技能模型未来必须在实际调用位置追加同格式轨迹，不能只增加一个总 token 数。
+摘要在实际调用位置追加同格式轨迹；技能辅助模型接入时也必须遵循该协议，
+不能只增加一个总 token 数。摘要历史输入封装成 user 数据，旧 assistant 不重复计费。
 最终 answer 应由 Agent 输出简短答案，不能把解释、引用或状态提示当作标准答案匹配。
 
 指标包含题数、normalized EM、工具调用总数/均值、API token 总数/均值及逐题结果。
