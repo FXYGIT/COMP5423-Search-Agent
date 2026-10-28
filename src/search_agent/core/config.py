@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +13,8 @@ class LlmConfig(BaseModel):
     api_key: SecretStr = SecretStr("")
     base_url: str = ""
     model: str = ""
+    timeout_seconds: float = Field(default=120, gt=0)
+    max_retries: int = Field(default=2, ge=0)
 
 
 EmbeddingCategory = Literal["encoder", "instruction"]
@@ -78,10 +80,26 @@ class SkillsConfig(BaseModel):
 
 
 class ContextConfig(BaseModel):
-    """上下文选择预算和摘要触发阈值，供待实现的摘要算法使用。"""
+    """按保守估算控制请求大小；API 实际用量仅由响应 usage 统计。
 
-    max_tokens: int = 16000
-    summary_trigger_tokens: int = 12000
+    max_tokens 包含 system、工具定义和预留输出。摘要使用同一个模型，
+    summary_max_tokens 限制辅助调用输出及保留摘要的大小。
+    """
+
+    max_tokens: int = Field(default=16000, gt=0)
+    summary_trigger_tokens: int = Field(default=12000, gt=0)
+    reserve_output_tokens: int = Field(default=2000, gt=0)
+    evidence_max_tokens: int = Field(default=4000, gt=0)
+    summary_max_tokens: int = Field(default=1500, gt=0)
+    summary_enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_budget(self) -> "ContextConfig":
+        if self.reserve_output_tokens >= self.max_tokens:
+            raise ValueError("CONTEXT__RESERVE_OUTPUT_TOKENS 必须小于 MAX_TOKENS。")
+        if self.summary_max_tokens >= self.max_tokens:
+            raise ValueError("CONTEXT__SUMMARY_MAX_TOKENS 必须小于 MAX_TOKENS。")
+        return self
 
 
 class EvaluationConfig(BaseModel):

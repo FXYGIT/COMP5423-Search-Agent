@@ -20,7 +20,8 @@ class SearchState(AgentState, total=False):
     trajectory_message_count：已记录的原始消息数，避免跨轮重复追加。
     tool_calls / total_tokens：累计真实调用统计；缺少 API usage 时 total_tokens=None。
     summary/summarized_message_count：累计摘要和已经覆盖的原始消息数量。
-    todos：LangChain 原生任务列表；其余业务字段待对应模块实现后填充。
+    search_message_count：进度提取游标，仅处理新增消息，与轨迹和摘要游标独立。
+    todos：LangChain 原生任务列表；未完成项映射为 active_subqueries。
     messages 始终保留完整原始过程；摘要和工具配对只改变模型请求视图。
     """
 
@@ -28,6 +29,7 @@ class SearchState(AgentState, total=False):
     selected_evidence: list[EvidencePassage | dict[str, Any]]
     active_subqueries: list[str]
     candidate_answer: str | None
+    search_message_count: int
     active_skill: str | None
     skill_instructions: str
     summary: str
