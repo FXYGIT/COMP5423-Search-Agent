@@ -28,6 +28,18 @@ class EmbeddingConfig(BaseModel):
     batch_size: int = 64
     normalize: bool = True
     query_instruction: str = "Find evidence answering the query."
+    # 编码最大长度；bge-m3 / Qwen3 可到 1024 甚至更高。
+    max_length: int = 512
+    # 建库时是否把文档标题前置到每段文本。
+    embed_title: bool = False
+    # 建库时是否对段落做轻量清洗（去元数据头、重复标题、页脚行）。
+    clean_passage: bool = True
+    # 是否额外删除导航/页脚行；默认关，避免删掉含实体名的内容行。
+    clean_boilerplate: bool = False
+    # 指定 chunk_map.jsonl 时直接复用它做段落边界（与 BM25 完全对齐）。
+    chunk_map: str = ""
+    # 部分 encoder（如 GTE v1.5）带自定义 modeling 代码，需要显式允许。
+    trust_remote_code: bool = False
 
     def model_for(self, category: EmbeddingCategory) -> str:
         """根据编码类别选择模型，供建库、检索和评估共用。"""
@@ -52,6 +64,18 @@ class RetrievalConfig(BaseModel):
     top_k: int = 5
     sparse_index_path: Path = Path("indexes/bm25")
     rrf_constant: int = 60
+    # 查询侧 idf 加权：score(d) = Σ_t idf(t)^idf_power · s(t, d)。
+    # 0 表示原始 BM25 打分，1.0 表示再乘一次 idf（验证集 R@10 约 +2.5pt）。
+    idf_power: float = 1.0
+    # 文档归并前先取多少个 chunk 作为候选，避免对全库排序。
+    candidate_chunks: int = 5000
+    # hybrid 融合：score = bm25_norm + hybrid_alpha * dense_sim。
+    hybrid_alpha: float = 1.0
+    # chunk 级三路融合的权重（bge / 指令）；0 表示不启用该路。
+    hybrid_bge_alpha: float = 0.25
+    hybrid_instruction_alpha: float = 1.0
+    # hybrid 先取多少个 chunk 做重排候选；与最终评测使用的 2000 保持一致。
+    hybrid_pool: int = 2000
 
 
 class IndexingConfig(BaseModel):
