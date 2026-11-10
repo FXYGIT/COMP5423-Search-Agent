@@ -90,21 +90,27 @@ def test_cli_clear_discards_history(monkeypatch, capsys):
     assert "清空" in capsys.readouterr().out
 
 
-def test_default_placeholder_tool_does_not_claim_real_search(capsys):
-    from search_agent.cli.main import stream_turn
+def test_missing_index_returns_error_without_fake_results(capsys):
+    from pathlib import Path
 
+    from search_agent.cli.main import stream_turn
+    from search_agent.core.config import AppConfig
+
+    config = AppConfig()
+    config.retrieval.sparse_index_path = Path("__missing_bm25_index__")
+    config.retrieval.method = "sparse"
     model = StreamingModel(
         responses=[
             AIMessage(
                 content="",
                 tool_calls=[{"name": "retrieve", "args": {"query": "winner"}, "id": "c1"}],
             ),
-            AIMessage(content="Retrieval is not implemented"),
+            AIMessage(content="Retrieval failed"),
         ]
     )
-    history = stream_turn(create_search_agent(model=model), "Search for winner", [])
-    assert "not_implemented" in history[2].content
-    assert "not_implemented" in capsys.readouterr().out
+    history = stream_turn(create_search_agent(model=model, config=config), "Search for winner", [])
+    assert "error" in history[2].content
+    assert "error" in capsys.readouterr().out
 
 
 def test_text_is_printed_while_model_is_still_streaming(monkeypatch):

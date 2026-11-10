@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
 
 from search_agent.core.config import AppConfig, get_config
+from search_agent.core.document import DocumentReader, DocumentStore
 from search_agent.core.logging_setup import setup_logger
 from search_agent.core.middlewares import (
     SearchContextMiddleware,
@@ -21,11 +22,11 @@ from search_agent.core.middlewares import (
 )
 from search_agent.core.state import SearchState
 from search_agent.core.tools import (
-    find_in_document,
-    inspect_document,
+    create_find_in_document_tool,
+    create_inspect_document_tool,
+    create_open_document_tool,
     list_skills,
     load_skill,
-    open_document,
     read_skill_resource,
     run_skill_script,
     unload_skill,
@@ -43,8 +44,9 @@ run_skill_script to run a loaded skill's scripts, and unload_skill when finished
 Use inspect_document for query-focused reading within a known document.
 Use write_todos for multi-step research; it is functional and tracks progress.
 Answer follow-up questions using the conversation history.
-The search/document/skill tools are currently scaffolds. If a tool returns not_implemented, explain
-that the feature is unfinished; do not repeat it or claim to have retrieved evidence.
+The search and document tools are implemented against the same fixed corpus: retrieve returns
+ranked documents, and open_document / find_in_document / inspect_document read their text.
+If a tool returns status "error", report the problem instead of inventing evidence.
 When evidence is available, cite document IDs in the answer.
 """
 
@@ -85,21 +87,25 @@ def create_search_agent(
         # 最内层记录最终注入后的 system prompt，保持在请求包装链末尾。
         TrajectoryMiddleware(),
     ]
-    agent = create_agent(
-        model=model,
-        tools=list(tools)
-        if tools is not None
-        else [
+    if tools is None:
+        # 语料与阅读器只构造一次，三个文档工具共用同一个实例。
+        store = DocumentStore(config.document.corpus_path)
+        reader = DocumentReader(store)
+        tools = [
             create_retrieve_tool(config),
-            open_document,
-            find_in_document,
+            create_open_document_tool(store),
+            create_find_in_document_tool(store),
+            create_inspect_document_tool(reader),
             load_skill,
-            inspect_document,
             list_skills,
             read_skill_resource,
             run_skill_script,
             unload_skill,
-        ],
+        ]
+
+    agent = create_agent(
+        model=model,
+        tools=list(tools),
         system_prompt=system_prompt,
         state_schema=SearchState,
         middleware=middleware,

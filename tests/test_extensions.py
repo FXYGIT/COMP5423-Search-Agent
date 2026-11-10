@@ -95,13 +95,11 @@ def test_todos_survive_next_cli_turn_and_are_visible(capsys):
 
 def test_extended_tool_parameters_reach_placeholder_without_fake_results():
     calls = [
-        ("retrieve", {"query": "a", "method": "hybrid", "instruction": "Find dates"}),
         ("read_skill_resource", {"name": "search-recovery", "path": "references/tips.md"}),
         (
             "run_skill_script",
             {"name": "search-recovery", "script": "scripts/rewrite.py", "arguments": ["q"]},
         ),
-        ("inspect_document", {"doc_id": "doc-1", "query": "a"}),
     ]
     for name, args in calls:
         model = StreamingModel(
@@ -118,7 +116,61 @@ def test_extended_tool_parameters_reach_placeholder_without_fake_results():
         assert response.get("result") is None
 
 
+def test_retrieve_with_missing_index_returns_error_without_fake_results():
+    from pathlib import Path
+
+    from search_agent.core.config import AppConfig
+
+    config = AppConfig()
+    config.retrieval.sparse_index_path = Path("__missing_bm25_index__")
+    config.retrieval.method = "sparse"
+    model = StreamingModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "retrieve", "args": {"query": "a"}, "id": "call"}],
+            ),
+            AIMessage(content="Unfinished"),
+        ]
+    )
+    result = create_search_agent(model=model, config=config).invoke(
+        {"messages": [HumanMessage(content="Try")]}
+    )
+    response = json.loads(result["messages"][2].content)
+    assert response["status"] == "error"
+    assert response.get("result") is None
+
+
+def test_inspect_document_unknown_id_returns_error_without_fake_result():
+    model = StreamingModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "inspect_document",
+                        "args": {"doc_id": "doc-1", "query": "a"},
+                        "id": "call",
+                    }
+                ],
+            ),
+            AIMessage(content="Unfinished"),
+        ]
+    )
+    result = create_search_agent(model=model).invoke({"messages": [HumanMessage(content="Try")]})
+    response = json.loads(result["messages"][2].content)
+    assert response["status"] == "error"
+    assert response.get("result") is None
+
+
 def test_async_agent_with_registered_middleware():
+    from pathlib import Path
+
+    from search_agent.core.config import AppConfig
+
+    config = AppConfig()
+    config.retrieval.method = "sparse"
+    config.retrieval.sparse_index_path = Path("__missing_bm25_index__")
     model = StreamingModel(
         responses=[
             AIMessage(
@@ -136,7 +188,7 @@ def test_async_agent_with_registered_middleware():
                 tool_calls=[
                     {
                         "name": "retrieve",
-                        "args": {"query": "a", "method": "dense"},
+                        "args": {"query": "a", "method": "sparse"},
                         "id": "search",
                     }
                 ],
@@ -145,11 +197,13 @@ def test_async_agent_with_registered_middleware():
         ]
     )
     result = asyncio.run(
-        create_search_agent(model=model).ainvoke({"messages": [HumanMessage(content="Hello")]})
+        create_search_agent(model=model, config=config).ainvoke(
+            {"messages": [HumanMessage(content="Hello")]}
+        )
     )
     assert result["messages"][-1].text == "Async works"
     assert result["todos"][0]["content"] == "Search"
-    assert json.loads(result["messages"][4].content)["status"] == "not_implemented"
+    assert json.loads(result["messages"][4].content)["status"] == "error"
 
 
 def test_preview_truncation_does_not_change_tool_history(capsys):
