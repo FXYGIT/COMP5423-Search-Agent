@@ -23,9 +23,10 @@ class Retriever:
     再按文档取最大值。RRF 仍保留在 ``fusion.py``，作为可替换的融合方式。
     """
 
-    def __init__(self, config: AppConfig | None = None) -> None:
+    def __init__(self, config: AppConfig | None = None, *, qwen_reserve: int | None = None) -> None:
         """共用 .env 配置快照，TODO：据此组装后端；构造阶段不加载模型。"""
         self.config = config or get_config()
+        self._qwen_reserve = qwen_reserve
         self._sparse: BM25Retriever | None = None
         self._sparse_loaded = False
         self._dense: DenseRetriever | None = None
@@ -104,11 +105,19 @@ class Retriever:
                 }
         return self._chunk_index_cache
 
-    def _aligned(self, backend: DenseRetriever) -> bool:
-        """稠密索引是否与稀疏索引共用同一份 chunk_map。"""
+    def _aligned(self, backend: DenseRetriever, rows: np.ndarray) -> bool:
+        """核对候选行的文档 ID 和原文偏移，防止跨索引混用分数。"""
         sparse = self._get_sparse()
-        return sparse.chunk_doc_ids is not None and len(sparse.chunk_doc_ids) == len(
-            backend._doc_ids
+        return (
+            sparse.chunk_doc_ids is not None
+            and sparse.chunk_starts is not None
+            and sparse.chunk_ends is not None
+            and backend._starts is not None
+            and backend._ends is not None
+            and len(sparse.chunk_doc_ids) == len(backend._doc_ids)
+            and np.array_equal(sparse.chunk_starts[rows], backend._starts[rows])
+            and np.array_equal(sparse.chunk_ends[rows], backend._ends[rows])
+            and all(sparse.chunk_doc_ids[i] == backend._doc_ids[i] for i in rows)
         )
 
     def build_index(
@@ -205,27 +214,35 @@ class Retriever:
 
         index = self._chunk_index()
         applied = False
+        qwen_reserve = self._qwen_reserve
+        if qwen_reserve is None:
+            qwen_reserve = getattr(self.config.retrieval, "hybrid_qwen_reserve", 0)
+        qwen_slots = min(max(qwen_reserve, 0), count - 1)
+        qwen_scores: np.ndarray | None = None
         if index:
             rows = np.array(
                 [index[(doc, start, end)] for doc, start, end, _ in chunks],
                 dtype=np.int64,
             )
-            if self._instruction_loaded and self._aligned(self._get_instruction()):
+            if self._instruction_loaded and self._aligned(self._get_instruction(), rows):
                 instruction_backend = self._get_instruction()
-                vector = instruction_backend._query_vector(query, instruction)
+                vector = instruction_backend._query_vector(query, instruction).astype(np.float32)
+                if qwen_slots:
+                    qwen_scores = instruction_backend._scores(vector)
+                    instruction_scores = qwen_scores[rows]
+                else:
+                    instruction_scores = instruction_backend._scores_for_rows(vector, rows)
                 fused = (
-                    fused
-                    + self.config.retrieval.hybrid_instruction_alpha
-                    * instruction_backend._scores(vector.astype(np.float32))[rows]
+                    fused + self.config.retrieval.hybrid_instruction_alpha * instruction_scores
                 ).astype(np.float32)
                 applied = True
-            if self._dense_loaded and self._aligned(self._get_dense()):
+            if self._dense_loaded and self._aligned(self._get_dense(), rows):
                 dense_backend = self._get_dense()
                 vector = dense_backend._query_vector(query, instruction)
                 fused = (
                     fused
                     + self.config.retrieval.hybrid_bge_alpha
-                    * dense_backend._scores(vector.astype(np.float32))[rows]
+                    * dense_backend._scores_for_rows(vector.astype(np.float32), rows)
                 ).astype(np.float32)
                 applied = True
 
@@ -248,4 +265,14 @@ class Retriever:
             )
             if len(results) >= count:
                 break
-        return results
+
+        if qwen_scores is None:
+            return results
+
+        head = results[: count - qwen_slots]
+        supplements = self._get_instruction()._ranked_results(
+            qwen_scores, count - len(head), exclude={item.doc_id for item in head}
+        )
+        selected = {item.doc_id for item in supplements}
+        fallback = [item for item in results[len(head) :] if item.doc_id not in selected]
+        return (head + supplements + fallback)[:count]

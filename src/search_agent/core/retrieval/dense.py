@@ -162,7 +162,8 @@ class DenseRetriever:
                     cached_text = str(dataset[rows[doc_id]]["text"])
                     cached_title = parse_fields(cached_text)[0].get("title", "")
                 start, end = int(meta["start"]), int(meta["end"])
-                yield doc_id, start, end, cached_title, cached_text[start:end]
+                title = meta.get("title_override", cached_title)
+                yield doc_id, start, end, title, cached_text[start:end]
 
     def _prepare_text(self, piece: str, title: str) -> str:
         """编码前的文本：可选清洗 + 可选标题前置。"""
@@ -361,6 +362,14 @@ class DenseRetriever:
 
         vector = self._query_vector(query, instruction).astype(np.float32)
         scores = self._scores(vector)
+        return self._ranked_results(scores, limit)
+
+    def _ranked_results(
+        self, scores: np.ndarray, limit: int, exclude: set[str] | None = None
+    ) -> list[RetrievalResult]:
+        """将按片段得出的分数归并为文档结果，可跳过已经入选的文档。"""
+        if limit <= 0 or not scores.size:
+            return []
         starts = self._starts
         ends = self._ends
         if starts is None or ends is None:
@@ -370,7 +379,7 @@ class DenseRetriever:
         order = part[np.argsort(-scores[part])]
 
         results: list[RetrievalResult] = []
-        seen: set[str] = set()
+        seen = set(exclude) if exclude else set()
         for index in order:
             doc_id = self._doc_ids[int(index)]
             if doc_id in seen:
@@ -419,6 +428,26 @@ class DenseRetriever:
             end = min(start + SEARCH_CHUNK, total)
             scores[start:end] = self._ram_embeddings[start:end] @ vector
         return scores
+
+    def _scores_for_rows(self, vector: np.ndarray, rows: np.ndarray) -> np.ndarray:
+        """按给定行号顺序，仅计算候选片段的相似度。"""
+        assert self._embeddings is not None
+        if self._device.startswith("cuda"):
+            import torch
+
+            query = torch.from_numpy(vector).to(device=self._device, dtype=torch.float16)
+            if self._gpu_embeddings is None:
+                candidates = torch.from_numpy(self._embeddings[rows]).to(self._device)
+            else:
+                indices = torch.as_tensor(rows, device=self._device, dtype=torch.long)
+                candidates = self._gpu_embeddings.index_select(0, indices)
+            return (candidates @ query).float().cpu().numpy()
+
+        if self._ram_embeddings is not None:
+            candidates_cpu = self._ram_embeddings[rows]
+        else:
+            candidates_cpu = self._embeddings[rows].astype(np.float32)
+        return np.asarray(candidates_cpu @ vector, dtype=np.float32)
 
     def _snippet(self, doc_id: str, start: int, end: int) -> tuple[str, str | None]:
         """按原文偏移取片段和来源 URL。"""
