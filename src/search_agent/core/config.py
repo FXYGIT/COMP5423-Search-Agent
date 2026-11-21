@@ -72,8 +72,8 @@ class RetrievalConfig(BaseModel):
     # hybrid 融合：score = bm25_norm + hybrid_alpha * dense_sim。
     hybrid_alpha: float = 1.0
     # chunk 级三路融合的权重（bge / 指令）；0 表示不启用该路。
-    hybrid_bge_alpha: float = 0.25
-    hybrid_instruction_alpha: float = 1.0
+    hybrid_bge_alpha: float = 0.5
+    hybrid_instruction_alpha: float = 2.0
     # hybrid 先取多少个 chunk 做重排候选；与最终评测使用的 2000 保持一致。
     hybrid_pool: int = 2000
 
