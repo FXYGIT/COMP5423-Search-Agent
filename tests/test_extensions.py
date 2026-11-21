@@ -141,7 +141,16 @@ def test_retrieve_with_missing_index_returns_error_without_fake_results():
     assert response.get("result") is None
 
 
-def test_inspect_document_unknown_id_returns_error_without_fake_result():
+def test_inspect_document_unknown_id_returns_error_without_fake_result(tmp_path):
+    from datasets import Dataset
+
+    from search_agent.core.config import AppConfig, DocumentConfig
+
+    corpus = tmp_path / "corpus"
+    Dataset.from_dict({"docid": ["known"], "text": ["Document"], "url": [None]}).save_to_disk(
+        corpus
+    )
+    config = AppConfig(document=DocumentConfig(corpus_path=corpus))
     model = StreamingModel(
         responses=[
             AIMessage(
@@ -157,9 +166,12 @@ def test_inspect_document_unknown_id_returns_error_without_fake_result():
             AIMessage(content="Unfinished"),
         ]
     )
-    result = create_search_agent(model=model).invoke({"messages": [HumanMessage(content="Try")]})
+    result = create_search_agent(model=model, config=config).invoke(
+        {"messages": [HumanMessage(content="Try")]}
+    )
     response = json.loads(result["messages"][2].content)
     assert response["status"] == "error"
+    assert "doc-1" in response["message"]
     assert response.get("result") is None
 
 

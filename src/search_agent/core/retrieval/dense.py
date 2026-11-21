@@ -441,7 +441,7 @@ class DenseRetriever:
             else:
                 indices = torch.as_tensor(rows, device=self._device, dtype=torch.long)
                 candidates = self._gpu_embeddings.index_select(0, indices)
-            return (candidates @ query).float().cpu().numpy()
+            return np.asarray((candidates @ query).float().cpu().numpy())
 
         if self._ram_embeddings is not None:
             candidates_cpu = self._ram_embeddings[rows]

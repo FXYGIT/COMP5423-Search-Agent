@@ -68,3 +68,8 @@ exclude = [
     "^tests/",
 ]
 plugins = ["pydantic.mypy"]
+
+# Dense retrieval imports these only when the optional embedding runtime is installed.
+[[tool.mypy.overrides]]
+module = ["torch", "transformers"]
+ignore_missing_imports = true

@@ -31,7 +31,7 @@ def create_find_in_document_tool(store: DocumentStore) -> BaseTool:
             found = store.find(doc_id, text)
         except KeyError:
             return {"status": "error", "message": f"未知文档 ID：{doc_id}", "result": None}
-        except ValueError as error:
+        except (FileNotFoundError, ValueError) as error:
             return {"status": "error", "message": str(error), "result": None}
         return {"status": "ok", "result": found.model_dump()}
 

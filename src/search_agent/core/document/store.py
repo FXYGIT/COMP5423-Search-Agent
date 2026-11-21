@@ -2,10 +2,12 @@
 
 from collections.abc import Iterator
 from pathlib import Path
+from threading import Lock
+from typing import Any
 
 from datasets import load_from_disk  # type: ignore[import-untyped]
 
-from search_agent.core.config import get_config
+from search_agent.core.config import DocumentConfig, get_config
 
 from .schemas import Document, DocumentPage, FindResult, TextMatch
 
@@ -17,26 +19,37 @@ class DocumentStore:
     默认数据、路径和参数合法。阅读优化和查找回退由 DocumentReader 负责。
     """
 
-    def __init__(self, corpus_path: str | Path | None = None) -> None:
-        """记录语料路径。TODO：加载本地数据集并建立文档 ID 映射。"""
-        self.config = get_config().document
+    def __init__(
+        self,
+        corpus_path: str | Path | None = None,
+        *,
+        config: DocumentConfig | None = None,
+    ) -> None:
+        """构造时只保存配置，首次读取才打开语料并建立文档 ID 映射。"""
+        self.config = config if config is not None else get_config().document
         self.corpus_path = Path(corpus_path) if corpus_path is not None else self.config.corpus_path
-        self.dataset = load_from_disk(str(self.corpus_path))
-        self.id_to_index = {
-            doc_id: row_index for row_index, doc_id in enumerate(self.dataset["docid"])
-        }
+        self._corpus: tuple[Any, dict[str, int]] | None = None
+        self._load_lock = Lock()
+
+    def _load_corpus(self) -> tuple[Any, dict[str, int]]:
+        with self._load_lock:
+            if self._corpus is None:
+                dataset = load_from_disk(str(self.corpus_path))
+                id_to_index = {str(doc_id): index for index, doc_id in enumerate(dataset["docid"])}
+                self._corpus = dataset, id_to_index
+            return self._corpus
 
     def get(self, doc_id: str) -> Document:
         """根据原始文档 ID 返回全文及来源 URL，供工具读取和证据引用。"""
-        row_index = self.id_to_index[doc_id]
-        row = self.dataset[row_index]
-        row = self.dataset[row_index]
-        return Document(doc_id=row["docid"], text=row["text"], source_url=row["url"])
+        dataset, id_to_index = self._load_corpus()
+        row = dataset[id_to_index[doc_id]]
+        return Document(doc_id=str(row["docid"]), text=row["text"], source_url=row["url"])
 
     def iter_documents(self) -> Iterator[Document]:
         """逐篇提供原文，供检索索引构建使用，不在此进行分词或打分。"""
-        for row in self.dataset:
-            yield Document(doc_id=row["docid"], text=row["text"], source_url=row["url"])
+        dataset, _ = self._load_corpus()
+        for row in dataset:
+            yield Document(doc_id=str(row["docid"]), text=row["text"], source_url=row["url"])
 
     def read(self, doc_id: str, start: int = 0, max_chars: int | None = None) -> DocumentPage:
         """读取从 start 开始的原文片段。

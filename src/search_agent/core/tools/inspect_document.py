@@ -31,7 +31,7 @@ def create_inspect_document_tool(reader: DocumentReader) -> BaseTool:
             inspection = reader.inspect(doc_id, query, max_chars=max_chars)
         except KeyError:
             return {"status": "error", "message": f"未知文档 ID：{doc_id}", "result": None}
-        except ValueError as error:
+        except (FileNotFoundError, ValueError) as error:
             return {"status": "error", "message": str(error), "result": None}
         return {"status": "ok", "result": inspection.model_dump()}
 

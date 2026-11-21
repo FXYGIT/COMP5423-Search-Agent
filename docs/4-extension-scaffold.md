@@ -7,9 +7,9 @@
 | retrieval | BM25、encoder dense、instruction dense、RRF 融合与统一路由 | 算法、模型加载、索引保存和搜索均 TODO；仅暴露一个 retrieve 工具 |
 | document | 原文读取、分页、查找、片段选择与定位回退 | 固定语料内优化；不引入外网补充证据，业务算法 TODO |
 | skills | 目录发现、正文加载、资源读取、脚本执行、卸载 | 脚本参数、输出、退出码和超时结构明确；当前不执行脚本，工具明确返回 not_implemented |
-| context | 结构化证据、摘要、预算选择、工具消息配对 | 摘要与裁剪算法 TODO；模型请求副本中移除未完成的工具调用，原始历史保留 |
-| planning | todos 与 write_todos | 复用 LangChain TodoListMiddleware，能够实际更新任务列表 |
-| middleware | 上下文、技能、规划、轨迹 | 主 Agent 轨迹/usage 已接入；其他未实现 hook 透传，同步/异步一致 |
+| context | 结构化证据、摘要、预算选择、工具消息配对 | 已实现状态提取、区间去重、预算裁剪和同步/异步增量摘要；原始历史保留 |
+| planning | todos、write_todos 与 record_candidate_answer | 原生任务列表映射到子问题；候选显式记录为待验证 |
+| middleware | 上下文、技能、规划、轨迹 | 上下文和主模型/摘要统计已接入；技能未实现 hook 透传 |
 | CLI | 流式文字、工具卡片、任务、技能、证据、状态 | 实际实现；保留完整 state，支持 /help、/clear、/todos、/skills、/evidence、/status 与 --plain、--verbose |
 
 题目第 1.1 节要求至少一类检索，三类全部实现可获得该项满分；融合是可选内部设计。第 1.3 节中 scripts/references/assets 为可选目录。文档回退、悬空工具调用处理和任务规划是本项目补充能力。只有真实实现的功能才能在报告中主张得分。
