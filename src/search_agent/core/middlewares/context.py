@@ -11,7 +11,11 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from langgraph.runtime import Runtime
 
 from search_agent.core.config import ContextConfig, get_config
-from search_agent.core.context.budget import estimate_text_tokens, estimate_tokens
+from search_agent.core.context.budget import (
+    ContextBudgetError,
+    estimate_text_tokens,
+    estimate_tokens,
+)
 from search_agent.core.context.messages import repair_tool_messages
 from search_agent.core.context.selection import extract_search_progress, select_context
 from search_agent.core.context.summary import ConversationSummarizer, SummaryResult
@@ -96,10 +100,14 @@ class SearchContextMiddleware(AgentMiddleware[SearchState, None]):
         cutoff = self._summary_cutoff(working)
         while self.summarizer is not None and working.get("summarized_message_count", 0) < cutoff:
             cursor = working.get("summarized_message_count", 0)
-            result = self.summarizer.summarize(
-                working["messages"][cursor:cutoff],
-                working.get("summary", ""),
-            )
+            try:
+                result = self.summarizer.summarize(
+                    working["messages"][cursor:cutoff],
+                    working.get("summary", ""),
+                )
+            except ContextBudgetError:
+                logger.warning("旧历史无法放入摘要预算，使用现有摘要和主请求裁剪继续。")
+                break
             self._record_summary(working, result)
             if not result.summarized_message_count:
                 logger.warning("摘要未返回有效纯文本，保留原摘要及消息游标。")
@@ -112,10 +120,14 @@ class SearchContextMiddleware(AgentMiddleware[SearchState, None]):
         cutoff = self._summary_cutoff(working)
         while self.summarizer is not None and working.get("summarized_message_count", 0) < cutoff:
             cursor = working.get("summarized_message_count", 0)
-            result = await self.summarizer.asummarize(
-                working["messages"][cursor:cutoff],
-                working.get("summary", ""),
-            )
+            try:
+                result = await self.summarizer.asummarize(
+                    working["messages"][cursor:cutoff],
+                    working.get("summary", ""),
+                )
+            except ContextBudgetError:
+                logger.warning("旧历史无法放入摘要预算，使用现有摘要和主请求裁剪继续。")
+                break
             self._record_summary(working, result)
             if not result.summarized_message_count:
                 logger.warning("摘要未返回有效纯文本，保留原摘要及消息游标。")

@@ -17,13 +17,22 @@ def repair_tool_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
         index += 1
         if isinstance(message, ToolMessage):
             continue
-        if not isinstance(message, AIMessage) or not message.tool_calls:
+        if not isinstance(message, AIMessage) or not (
+            message.tool_calls
+            or message.invalid_tool_calls
+            or message.additional_kwargs.get("tool_calls")
+        ):
             result.append(message)
             continue
+        names = {call["id"]: call["name"] for call in message.tool_calls}
         replies: dict[str, ToolMessage] = {}
         while index < len(messages) and isinstance(messages[index], ToolMessage):
             reply = messages[index]
-            if isinstance(reply, ToolMessage):
+            if (
+                isinstance(reply, ToolMessage)
+                and reply.tool_call_id in names
+                and (not reply.name or reply.name == names[reply.tool_call_id])
+            ):
                 replies[reply.tool_call_id] = reply
             index += 1
         calls = [call for call in message.tool_calls if call["id"] in replies]
@@ -48,6 +57,7 @@ def repair_tool_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
                 message.model_copy(
                     update={
                         "tool_calls": calls,
+                        "invalid_tool_calls": [],
                         "content": content,
                         "additional_kwargs": extras,
                     }
