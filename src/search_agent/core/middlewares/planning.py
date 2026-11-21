@@ -7,37 +7,21 @@
 主模型负责按“子问题→证据→验证”更新任务，无需独立规划 LLM。
 """
 
-from typing import Annotated
-
 from langchain.agents.middleware import TodoListMiddleware as NativeTodoListMiddleware
 from langchain.tools import tool
-from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId
-from langgraph.types import Command
 
 
 @tool
-def record_candidate_answer(
-    candidate_answer: str | None,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command[str]:
+def record_candidate_answer(candidate_answer: str | None) -> str:
     """Record an UNVERIFIED candidate answer while researching, or null to discard it.
 
     This only updates research memory; it does not establish facts or add evidence.
     Use document tools to verify the candidate before providing your final answer.
     """
-    candidate = candidate_answer.strip() if candidate_answer else None
-    return Command(
-        update={
-            "candidate_answer": candidate or None,
-            "messages": [
-                ToolMessage(
-                    content="Unverified candidate recorded." if candidate else "Candidate cleared.",
-                    name="record_candidate_answer",
-                    tool_call_id=tool_call_id,
-                )
-            ],
-        }
+    return (
+        "Unverified candidate recorded."
+        if candidate_answer and candidate_answer.strip()
+        else "Candidate cleared."
     )
 
 

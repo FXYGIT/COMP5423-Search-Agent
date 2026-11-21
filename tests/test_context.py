@@ -11,7 +11,14 @@ from langchain_core.tools import tool
 from pydantic import ValidationError
 
 from search_agent.core import create_search_agent
-from search_agent.core.config import AppConfig, ContextConfig, LlmConfig, LoggingConfig
+from search_agent.core.agent import DeepSeekChatOpenAI
+from search_agent.core.config import (
+    AppConfig,
+    ContextConfig,
+    DocumentConfig,
+    LlmConfig,
+    LoggingConfig,
+)
 from search_agent.core.context.budget import estimate_text_tokens, estimate_tokens
 from search_agent.core.context.selection import (
     deduplicate_evidence,
@@ -504,3 +511,121 @@ def test_candidate_recording_and_native_todo_progress_reach_next_model(asynchron
     assert result["active_subqueries"] == ["Verify Alice in source"]
     assert any("UNVERIFIED candidate: Alice" in m.text for m in model.requests[-1])
     assert result["selected_evidence"] == []
+
+
+def test_parallel_candidate_updates_are_applied_in_model_call_order(tmp_path):
+    model = ObservedModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "record_candidate_answer",
+                        "args": {"candidate_answer": "Alice"},
+                        "id": "a",
+                    },
+                    {
+                        "name": "record_candidate_answer",
+                        "args": {"candidate_answer": "Bob"},
+                        "id": "b",
+                    },
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "record_candidate_answer",
+                        "args": {"candidate_answer": None},
+                        "id": "clear",
+                    }
+                ],
+            ),
+            AIMessage(content="No answer verified"),
+        ]
+    )
+    agent = create_search_agent(
+        model=model,
+        tools=[],
+        config=AppConfig(logging=LoggingConfig(path=tmp_path / "agent.log")),
+    )
+    result = agent.invoke({"messages": [HumanMessage(content="Who won?")]})
+    assert any("UNVERIFIED candidate: Bob" in message.text for message in model.requests[1])
+    assert all("UNVERIFIED candidate:" not in message.text for message in model.requests[2])
+    assert result["tool_calls"] == 3
+    assert result["selected_evidence"] == []
+
+
+def test_default_document_tools_share_corpus_and_keep_grounded_evidence(tmp_path):
+    from datasets import Dataset
+
+    corpus = tmp_path / "corpus"
+    text = "The winner was Alice. " + "A background sentence. " * 600
+    url = "https://example.org/document"
+    models = ObservedModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "open_document",
+                        "args": {"doc_id": "d1", "max_chars": 8500},
+                        "id": "open",
+                    },
+                    {
+                        "name": "find_in_document",
+                        "args": {"doc_id": "d1", "text": "Alice"},
+                        "id": "find",
+                    },
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "inspect_document",
+                        "args": {"doc_id": "d1", "query": "Alice"},
+                        "id": "inspect",
+                    }
+                ],
+            ),
+            AIMessage(content="Alice"),
+        ]
+    )
+    summary = ObservedModel(responses=[AIMessage(content="d1 identifies Alice.")])
+    agent = create_search_agent(
+        model=models,
+        summary_model=summary,
+        config=AppConfig(
+            document=DocumentConfig(corpus_path=corpus, max_chars=250),
+            context=context_config(),
+            logging=LoggingConfig(path=tmp_path / "agent.log"),
+        ),
+    )
+    # 工厂在数据出现前也可以创建。首次工具调用时再读取本地 corpus。
+    Dataset.from_dict({"docid": ["d1"], "text": [text], "url": [url]}).save_to_disk(corpus)
+    result = agent.invoke({"messages": [HumanMessage(content="Who won?")]})
+    tool_results = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+    assert [json.loads(m.text)["status"] for m in tool_results] == ["ok", "ok", "ok"]
+    assert result["visited_doc_ids"] == ["d1"]
+    assert len(result["selected_evidence"]) == 1
+    evidence = result["selected_evidence"][0]
+    assert (evidence.source_url, evidence.text) == (url, text[evidence.start : evidence.end])
+    assert evidence.end == 8500
+    assert result["summarized_message_count"] == 4
+    assert any("d1 identifies Alice." in message.text for message in models.requests[-1])
+    assert result["messages"][-1].text == "Alice"
+
+
+def test_deepseek_official_payload_uses_output_limit_supported_by_chat_completions():
+    model = DeepSeekChatOpenAI(
+        api_key="test-key",
+        base_url="https://api.deepseek.com/v1",
+        model="deepseek-flash",
+        max_tokens=256,
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    payload = model._get_request_payload([HumanMessage(content="Test")], max_tokens=128)
+    assert payload["max_tokens"] == 128
+    assert "max_completion_tokens" not in payload
+    assert payload["extra_body"]["thinking"] == {"type": "disabled"}

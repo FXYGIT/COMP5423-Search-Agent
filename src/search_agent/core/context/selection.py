@@ -97,6 +97,7 @@ def extract_search_progress(state: SearchState) -> dict[str, Any]:
     evidence: list[Any] = list(state.get("selected_evidence", []))
     queries = list(state.get("active_subqueries", []))
     candidate = state.get("candidate_answer")
+    candidate_call_position: dict[int, int] = {}
     for index in range(count, len(messages)):
         message = messages[index]
         if isinstance(message, HumanMessage):
@@ -112,12 +113,32 @@ def extract_search_progress(state: SearchState) -> dict[str, Any]:
             caller = messages[call_index]
             if not isinstance(caller, AIMessage):
                 continue
-            call = next(
-                (item for item in caller.tool_calls if item["id"] == message.tool_call_id), None
+            position = next(
+                (
+                    i
+                    for i, item in enumerate(caller.tool_calls)
+                    if item["id"] == message.tool_call_id
+                ),
+                None,
             )
-            if call is None or (message.name and message.name != call["name"]):
+            if position is None:
+                continue
+            call = caller.tool_calls[position]
+            if message.name and message.name != call["name"]:
                 continue
             name = call["name"]
+            if name == "record_candidate_answer" and message.status != "error":
+                args = call["args"]
+                value = args.get("candidate_answer")
+                if (
+                    "candidate_answer" in args
+                    and (value is None or isinstance(value, str))
+                    and position > candidate_call_position.get(call_index, -1)
+                ):
+                    # 同批调用以模型发出顺序为准，不让并行工具写同一个状态字段。
+                    candidate = (value.strip() or None) if isinstance(value, str) else None
+                    candidate_call_position[call_index] = position
+                continue
             if name in {"retrieve", "inspect_document"}:
                 query = call["args"].get("query")
                 if isinstance(query, str) and query.strip():

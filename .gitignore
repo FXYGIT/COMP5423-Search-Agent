@@ -241,3 +241,10 @@ main.pdf
 data
 logs
 
+
+
+# 本地索引与模型（体积大，通过云端只读链接分发）
+
+# local artifacts (large): fetch from the cloud read-only link
+indexes/
+models/

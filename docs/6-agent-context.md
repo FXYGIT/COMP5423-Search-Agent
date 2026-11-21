@@ -2,7 +2,8 @@
 
 B 负责 Agent 工厂、公共配置/状态和搜索上下文。A 的检索/文档工具、C 的技能工具和
 D 的轨迹 middleware 由工厂组装；本模块不实现索引、技能加载或评估脚本。
-当前 A、C 的业务工具仍可能返回 `not_implemented`，离线模块验证不代表真实搜索已接通。
+默认工厂共享一个文档存储实例，首次读文档时加载语料。缺少语料时，工具返回错误，Agent 仍可启动。
+技能和批量评估适配仍在开发中。
 
 ## 一次请求如何执行
 
@@ -17,6 +18,8 @@ CLI/评估 → create_search_agent → LangChain 原生模型/工具循环
 `core/agent.py` 是唯一工厂，返回原生图，支持 `invoke/ainvoke/stream/astream`。
 默认模型读取 `AppConfig.llm`，填写服务商提供的 DeepSeek-V4-Flash 模型 ID；不同网关
 ID 不一定相同，因此不虚构默认 ID。超时和重试同样来自统一配置。
+官方 `api.deepseek.com` 使用 Chat Completions 的 `max_tokens` 并关闭 thinking，避免裁剪后的
+工具对话要求回传完整 `reasoning_content`。其他兼容端点沿用 `ChatOpenAI` 的请求格式。
 查询改写、多次检索、阅读及验证由主模型与原生循环完成，没有增加自定义循环或独立规划 LLM。
 
 测试可注入 `model`、`tools`、`system_prompt` 和 `summary_model`。
@@ -67,9 +70,9 @@ ID 不一定相同，因此不虚构默认 ID。超时和重试同样来自统�
 `middlewares/planning.py` 继承原生 `TodoListMiddleware`，保持 `write_todos` 完整列表更新语义。
 `pending/in_progress` 条目映射到 `active_subqueries`，已完成条目排除。
 
-新增 `record_candidate_answer(candidate_answer)`，通过 LangGraph `Command` 显式记录搜索中的假设。
-调用 ID 由框架注入；传 `null` 清空候选。下一次推理会看到 `UNVERIFIED candidate`，
-记录候选不增加证据，也不会自动完成验证任务。
+`record_candidate_answer(candidate_answer)` 通过配对的成功工具消息记录假设。工具运行完毕后由
+上下文层写入状态，避免并行写冲突。同批候选以模型发出的最后一个有效调用为准，传 `null` 清空。
+下一次推理会看到 `UNVERIFIED candidate`，记录候选也不会自动完成验证任务。
 
 ## 预算与模型请求副本
 
@@ -137,7 +140,12 @@ uv run mypy .
 原文提取、无效结果、区间去重、游标幂等、完整轮次/工具块、超长结果、预算错误、
 TODO/候选衔接、分批摘要、CLI 摘要隔离、真实 usage 汇总和跨题状态隔离。
 
-等待 A、C 工具实现并配置真实 API 后，可进行人工联调：
+另以 BrowseComp-Plus 原始语料的前 8 篇建立小型 BM25 索引，用脚本化模型调用真实的检索、
+阅读和定位工具。一条 50,000 字符的工具结果完整留在历史中。最终请求的历史部分从估算
+19,610 tokens 降至 627（关闭摘要）或 645（开启摘要，额外调用 2 次）。两组都向最终请求
+传入了定位到的关键短语，且证据的字符偏移与原文一致。这组数值衡量请求组装，不代表实际 API 用量或答题正确率。
+
+配置真实 API、原始语料和对应索引后，可进行人工联调：
 
 1. `uv run search-agent --plain --verbose` 提问需要多次文档核对的问题；预期显示真实工具过程，
    `/evidence` 显示文档证据，重复阅读不重复添加相同片段。
@@ -146,4 +154,4 @@ TODO/候选衔接、分批摘要、CLI 摘要隔离、真实 usage 汇总和跨�
 4. `/clear` 后问无关问题；预期文档、证据、摘要、候选及 TODO 从空状态开始。
    验证后恢复配置。预算或 API 异常查看 `logs/search_agent.log`，同时保留工具参数和失败信息。
 
-本次不调用真实 API；真实 DeepSeek、语料/技能和完整批量评估仍需团队集成验证。
+真实 DeepSeek 的摘要质量、答题正确率和完整批量评估仍需团队集成验证。

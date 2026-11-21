@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 def create_retrieve_tool(config: AppConfig | None = None) -> BaseTool:
     """绑定 Agent 的配置快照；独立使用时在调用工具时读取 .env，不在导入时读取。"""
 
+    # 后端只在首次调用时创建并缓存，避免每次查询都重新加载索引或模型。
+    backends: list[Retriever] = []
+
     @tool("retrieve")
     def retrieve(
         query: str,
@@ -33,7 +36,9 @@ def create_retrieve_tool(config: AppConfig | None = None) -> BaseTool:
         intent = instruction if instruction is not None else settings.embedding.query_instruction
         logger.info("检索请求 method=%s top_k=%d", selected_method, count)
         # TODO：后端实现后在工厂生命周期内复用已加载实例，而不是每次查询重载模型。
-        backend = Retriever(settings)
+        if not backends:
+            backends.append(Retriever(settings))
+        backend = backends[0]
         try:
             results = backend.retrieve(query, count, selected_method, intent)
         except NotImplementedError:
@@ -41,6 +46,13 @@ def create_retrieve_tool(config: AppConfig | None = None) -> BaseTool:
             return {
                 "status": "not_implemented",
                 "message": "固定语料检索尚未实现。",
+                "result": None,
+            }
+        except (FileNotFoundError, RuntimeError) as error:
+            logger.warning("检索后端不可用: %s", error)
+            return {
+                "status": "error",
+                "message": f"检索后端不可用：{error}",
                 "result": None,
             }
         return {"status": "ok", "result": [item.model_dump() for item in results]}

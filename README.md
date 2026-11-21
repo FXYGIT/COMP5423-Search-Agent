@@ -42,8 +42,8 @@ uv run search-agent --plain --verbose
 - `/help` 查看命令；`/todos`、`/skills`、`/evidence`、`/status` 查看对应状态。
 - `/clear` 清空完整状态；`exit`、`quit`、`/exit` 退出；生成中 Ctrl+C 中断本轮。
 - `--plain` 使用纯文本；`--verbose` 展示完整工具结果。
-- 检索、文档、技能工具返回 `not_implemented`，不产生假证据；`write_todos` 和
-  `record_candidate_answer` 可实际使用。
+- 检索和文档工具需要对应的索引或原始语料，缺少文件时返回明确的工具错误。技能工具仍返回
+  `not_implemented`。`write_todos` 和 `record_candidate_answer` 可直接使用。
 
 ## 当前实现范围
 
@@ -52,12 +52,10 @@ uv run search-agent --plain --verbose
 请求预算选择、增量摘要及工具消息配对。原始历史完整保留；主模型和摘要模型的
 消息轨迹、工具调用次数和实际 API usage 使用同一统计协议。
 
-**只保留注释和接口**：文档存储、相关片段选择与定位回退；BM25、稠密、指令检索和
-RRF 融合；技能发现、正文/资源加载与脚本执行；技能辅助模型的轨迹接入。
-这些业务方法使用 `NotImplementedError`；对应 middleware 已注册，未实现部分透传。
-上下文模块可消费约定的成功工具结果，真实语料/技能联调仍依赖 A、C 的实现。
+检索和文档工具已接入固定语料。Agent 构造时无需打开语料，首次访问文档时才加载。
+技能发现、正文/资源加载、脚本执行和技能辅助模型轨迹仍在开发中。
 
-因此 CLI 可以聊天并展示工具调用，但真实语料搜索和完整作业功能需要后续补齐。
+配置原始语料与对应索引后，CLI 可对固定语料搜索并展示证据。
 类和函数的职责、输入输出及 TODO 都在代码注释中，
 详见 [Core 与 CLI 说明](docs/2-agent-middleware.md) 和
 [检索实现说明](docs/1-retrieval-plan.md)、[扩展骨架说明](docs/4-extension-scaffold.md) 和
