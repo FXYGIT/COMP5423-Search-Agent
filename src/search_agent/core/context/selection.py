@@ -10,7 +10,7 @@ from search_agent.core.config import ContextConfig, get_config
 from search_agent.core.document.schemas import EvidencePassage
 from search_agent.core.state import SearchState
 
-from .budget import estimate_tokens, fit_block, message_blocks, truncate_text
+from .budget import ContextBudgetError, estimate_tokens, fit_block, message_blocks, truncate_text
 
 DOCUMENT_TOOLS = {"open_document", "find_in_document", "inspect_document"}
 
@@ -102,7 +102,11 @@ def extract_search_progress(state: SearchState) -> dict[str, Any]:
         message = messages[index]
         if isinstance(message, HumanMessage):
             candidate, queries = None, []
-        elif isinstance(message, AIMessage) and not message.tool_calls and message.text.strip():
+        elif (
+            isinstance(message, AIMessage)
+            and not (message.tool_calls or message.invalid_tool_calls)
+            and message.text.strip()
+        ):
             candidate = message.text.strip()
         elif isinstance(message, ToolMessage):
             call_index = index - 1
@@ -217,11 +221,13 @@ def _memory(state: SearchState, budget: int, config: ContextConfig) -> HumanMess
             truncate_text("\n".join(evidence_parts), min(config.evidence_max_tokens, budget // 2))
         )
     if state.get("summary"):
+        # 证据为空时，把空闲的证据预算留给摘要，避免丢掉其中唯一的历史事实。
+        summary_budget = budget // 3 if evidence_parts else budget - 64
         parts.append(
             "Previous research summary:\n"
             + truncate_text(
                 state["summary"],
-                min(config.summary_max_tokens, budget // 3),
+                min(config.summary_max_tokens, summary_budget),
             )
         )
     if state.get("visited_doc_ids"):
@@ -275,7 +281,7 @@ def select_context(
     memory_cost = estimate_tokens([memory]) if memory is not None else 0
     try:
         selected = fit_block(required, budget - memory_cost)
-    except ValueError:
+    except ContextBudgetError:
         memory, memory_cost = None, 0
         selected = fit_block(required, budget)
     latest_index = next((i for i, b in enumerate(blocks) if b[0] is latest), -1)

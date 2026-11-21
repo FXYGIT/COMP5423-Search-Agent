@@ -1,7 +1,7 @@
 """无需联网或下载 tokenizer 的预算估算；绝不用于评估 API 用量。"""
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
@@ -9,6 +9,10 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from .messages import repair_tool_messages
 
 TRUNCATED = "\n[Context preview truncated; full result remains in original history.]"
+
+
+class ContextBudgetError(ValueError):
+    """请求在保留必要消息结构后仍无法放入估算预算。"""
 
 
 def estimate_text_tokens(text: str) -> int:
@@ -56,31 +60,39 @@ def message_blocks(messages: list[AnyMessage]) -> list[list[AnyMessage]]:
     return blocks
 
 
-def fit_block(block: list[AnyMessage], max_tokens: int) -> list[AnyMessage]:
+def fit_block(
+    block: list[AnyMessage],
+    max_tokens: int,
+    *,
+    measure: Callable[[list[AnyMessage]], int] = estimate_tokens,
+    trim_user_messages: bool = False,
+) -> list[AnyMessage]:
     """超长块仅裁剪内容副本；保留真实调用参数、调用 ID 和全部对应工具结果。"""
     result = list(block)
-    while estimate_tokens(result) > max_tokens:
+    while measure(result) > max_tokens:
         candidates = [
             i
             for i, message in enumerate(result)
-            if not isinstance(message, HumanMessage) and message.content
+            if (trim_user_messages or not isinstance(message, HumanMessage)) and message.content
         ]
         if not candidates:
-            raise ValueError("上下文预算不足以容纳最新问题或完整工具调用参数；请增加 MAX_TOKENS。")
+            raise ContextBudgetError(
+                "上下文预算不足以容纳必要消息或完整工具调用参数；请增加 MAX_TOKENS。"
+            )
         index = max(candidates, key=lambda i: estimate_text_tokens(result[i].text))
         message = result[index]
         # JSON 中的换行、引号和反斜杠也有开销，按完整序列化请求二分，
         # 不能从可见正文长度简单减去超额数，否则可能把正文一次清空。
         trial = list(result)
         trial[index] = message.model_copy(update={"content": TRUNCATED})
-        if estimate_tokens(trial) > max_tokens:
+        if measure(trial) > max_tokens:
             result[index] = message.model_copy(update={"content": ""})
             continue
         low, high = 0, len(message.text)
         while low < high:
             middle = (low + high + 1) // 2
             trial[index] = message.model_copy(update={"content": message.text[:middle] + TRUNCATED})
-            if estimate_tokens(trial) <= max_tokens:
+            if measure(trial) <= max_tokens:
                 low = middle
             else:
                 high = middle - 1

@@ -18,8 +18,10 @@ from search_agent.core.config import (
     DocumentConfig,
     LlmConfig,
     LoggingConfig,
+    RetrievalConfig,
 )
 from search_agent.core.context.budget import estimate_text_tokens, estimate_tokens
+from search_agent.core.context.messages import repair_tool_messages
 from search_agent.core.context.selection import (
     deduplicate_evidence,
     extract_search_progress,
@@ -28,6 +30,8 @@ from search_agent.core.context.selection import (
 from search_agent.core.context.summary import ConversationSummarizer
 from search_agent.core.middlewares.context import SearchContextMiddleware
 from search_agent.core.trajectory import AssistantEntry, ToolEntry, trajectory_totals
+from search_agent.evaluation.runner import prediction_from_state
+from search_agent.evaluation.schemas import EvaluationQuestion
 from tests.test_agent import StreamingModel
 
 
@@ -172,6 +176,31 @@ def test_artifacts_and_todos_are_consumed_without_planning_model():
     progress = extract_search_progress(state)
     assert progress["active_subqueries"] == ["Verify date"]
     assert progress["selected_evidence"][0].text == "Alice won."
+
+
+def test_repair_removes_invalid_calls_and_mismatched_replies_only_from_request():
+    from langchain_openai.chat_models.base import _convert_message_to_dict
+
+    caller = AIMessage(
+        content="Reading sources",
+        tool_calls=[
+            {"id": "good", "name": "open_document", "args": {"doc_id": "d1"}},
+            {"id": "mismatch", "name": "retrieve", "args": {"query": "source"}},
+        ],
+        invalid_tool_calls=[{"id": "invalid", "name": "retrieve", "args": "{", "error": "JSON"}],
+    )
+    history = [
+        caller,
+        ToolMessage(content="Correct result", name="open_document", tool_call_id="good"),
+        ToolMessage(content="Wrong tool", name="inspect_document", tool_call_id="mismatch"),
+    ]
+    repaired = repair_tool_messages(history)
+    assert [call["id"] for call in _convert_message_to_dict(repaired[0])["tool_calls"]] == ["good"]
+    assert repaired[1:] == [history[1]]
+    assert len(caller.tool_calls) == 2 and caller.invalid_tool_calls[0]["id"] == "invalid"
+
+    invalid_only = caller.model_copy(update={"tool_calls": []})
+    assert not _convert_message_to_dict(repair_tool_messages([invalid_only])[0]).get("tool_calls")
 
 
 def test_dedup_merges_matching_overlap_but_preserves_conflicting_originals():
@@ -356,6 +385,8 @@ def test_agent_search_summary_usage_and_independent_states(mode, tmp_path):
     assert state["tool_calls"] == 2
     assert state["total_tokens"] == 67
     assert trajectory_totals(state["trajectory"]) == (2, 67)
+    prediction = prediction_from_state(EvaluationQuestion(id="one", question="Who won?"), state)
+    assert (prediction.answer, prediction.tool_calls, prediction.total_tokens) == ("Alice", 2, 67)
     assert len([e for e in state["trajectory"] if isinstance(e, AssistantEntry)]) == 4
     assert [e.tool_call_id for e in state["trajectory"] if isinstance(e, ToolEntry)] == ["a", "b"]
     assert "SUMMARY_PRIVATE" not in state["messages"][-1].text
@@ -424,9 +455,56 @@ def test_incremental_summary_batches_fit_and_do_not_reprocess_old_prefix(tmp_pat
     assert len(model.requests) == count
 
 
-def test_invalid_summary_response_preserves_cursor_and_records_actual_usage():
+def test_summary_trims_oversized_old_user_message_using_wrapped_request_budget():
+    config = context_config(max_tokens=1500)
+    model = ObservedModel(responses=[AIMessage(content="Memory", usage_metadata=usage(5))])
+    original = "Remember the archive code.\n" + ('"Extra note" \\ \n' * 600)
+    old_question = HumanMessage(content=original)
+    result = ConversationSummarizer(model, config).summarize([old_question])
+
+    request = model.requests[0]
+    assert result.summarized_message_count == 1
+    assert estimate_tokens(request) + config.summary_max_tokens <= config.max_tokens
+    assert "Remember the archive code" in request[-1].text
+    assert "preview truncated" in request[-1].text
+    assert old_question.text == original
+
+
+def test_summary_memory_preserves_saved_fact_when_no_evidence_competes_for_budget():
+    fact = "The archive verification code is SILVER-MALLOW-729."
+    question = HumanMessage(content="What was the archive verification code?")
+    summary = "Earlier archive notes and conversation history. " * 14 + fact
+
+    request = select_context(
+        {"messages": [question], "summary": summary}, 1800, config=context_config()
+    )
+
+    assert estimate_tokens(request) <= 1800
+    assert request[-1] == question
+    assert fact in request[0].text
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        AIMessage(content="", usage_metadata=usage(7)),
+        AIMessage(
+            content="Incomplete fact",
+            response_metadata={"finish_reason": "length"},
+            usage_metadata=usage(7),
+        ),
+        AIMessage(
+            content="Invalid tool",
+            invalid_tool_calls=[
+                {"id": "bad", "name": "open_document", "args": "{", "error": "JSON"},
+            ],
+            usage_metadata=usage(7),
+        ),
+    ],
+)
+def test_invalid_summary_response_preserves_cursor_and_records_actual_usage(response):
     config = context_config()
-    model = ObservedModel(responses=[AIMessage(content="", usage_metadata=usage(7))])
+    model = ObservedModel(responses=[response])
     middleware = SearchContextMiddleware(config, ConversationSummarizer(model, config))
     state = {
         "messages": [
@@ -439,6 +517,36 @@ def test_invalid_summary_response_preserves_cursor_and_records_actual_usage():
     assert update["summarized_message_count"] == 0
     assert update["summary"] == ""
     assert update["trajectory"][-1].usage.total_tokens == 7
+
+
+@pytest.mark.parametrize("async_mode", [False, True])
+def test_oversized_old_tool_parameters_do_not_abort_new_question(async_mode, tmp_path):
+    obsolete_call, result = exchange(
+        "retrieve", {"text": "Old tool output"}, args={"query": "x" * 24000}
+    )
+    obsolete_call.usage_metadata = usage(5)
+    model = ObservedModel(responses=[AIMessage(content="New answer", usage_metadata=usage(9))])
+    summary = ObservedModel(
+        responses=[AIMessage(content="Partial summary", usage_metadata=usage(7))]
+    )
+    config = AppConfig(context=context_config(), logging=LoggingConfig(path=tmp_path / "agent.log"))
+    agent = create_search_agent(model=model, summary_model=summary, tools=[], config=config)
+    history = {
+        "messages": [
+            HumanMessage(content="Old question"),
+            obsolete_call,
+            result,
+            HumanMessage(content="New question"),
+        ]
+    }
+    state = asyncio.run(agent.ainvoke(history)) if async_mode else agent.invoke(history)
+
+    assert state["messages"][-1].text == "New answer"
+    assert state["messages"][1].tool_calls == obsolete_call.tool_calls
+    assert not any(isinstance(m, ToolMessage) for m in model.requests[-1])
+    assert state["summarized_message_count"] == 1
+    assert state["summary"] == "Partial summary"
+    assert state["total_tokens"] == 21
 
 
 def test_return_direct_document_still_updates_search_state(tmp_path):
@@ -556,14 +664,22 @@ def test_parallel_candidate_updates_are_applied_in_model_call_order(tmp_path):
     assert result["selected_evidence"] == []
 
 
-def test_default_document_tools_share_corpus_and_keep_grounded_evidence(tmp_path):
+def test_default_sparse_search_and_document_tools_keep_grounded_evidence(tmp_path):
     from datasets import Dataset
+
+    from search_agent.core.retrieval.bm25 import BM25Retriever
 
     corpus = tmp_path / "corpus"
     text = "The winner was Alice. " + "A background sentence. " * 600
     url = "https://example.org/document"
     models = ObservedModel(
         responses=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "retrieve", "args": {"query": "Alice winner"}, "id": "search"},
+                ],
+            ),
             AIMessage(
                 content="",
                 tool_calls=[
@@ -593,39 +709,66 @@ def test_default_document_tools_share_corpus_and_keep_grounded_evidence(tmp_path
         ]
     )
     summary = ObservedModel(responses=[AIMessage(content="d1 identifies Alice.")])
-    agent = create_search_agent(
-        model=models,
-        summary_model=summary,
-        config=AppConfig(
-            document=DocumentConfig(corpus_path=corpus, max_chars=250),
-            context=context_config(),
-            logging=LoggingConfig(path=tmp_path / "agent.log"),
-        ),
+    config = AppConfig(
+        document=DocumentConfig(corpus_path=corpus, max_chars=250),
+        retrieval=RetrievalConfig(method="sparse", sparse_index_path=tmp_path / "bm25"),
+        context=context_config(),
+        logging=LoggingConfig(path=tmp_path / "agent.log"),
     )
+    agent = create_search_agent(model=models, summary_model=summary, config=config)
     # 工厂在数据出现前也可以创建。首次工具调用时再读取本地 corpus。
     Dataset.from_dict({"docid": ["d1"], "text": [text], "url": [url]}).save_to_disk(corpus)
+    BM25Retriever(config).build_index(corpus, limit=None)
     result = agent.invoke({"messages": [HumanMessage(content="Who won?")]})
-    tool_results = [m for m in result["messages"] if isinstance(m, ToolMessage)]
-    assert [json.loads(m.text)["status"] for m in tool_results] == ["ok", "ok", "ok"]
+    tool_results = [json.loads(m.text) for m in result["messages"] if isinstance(m, ToolMessage)]
+    assert [item["status"] for item in tool_results] == ["ok"] * 4
+    assert tool_results[0]["result"][0]["doc_id"] == "d1"
     assert result["visited_doc_ids"] == ["d1"]
     assert len(result["selected_evidence"]) == 1
     evidence = result["selected_evidence"][0]
     assert (evidence.source_url, evidence.text) == (url, text[evidence.start : evidence.end])
     assert evidence.end == 8500
-    assert result["summarized_message_count"] == 4
+    assert result["summarized_message_count"] == 6
     assert any("d1 identifies Alice." in message.text for message in models.requests[-1])
     assert result["messages"][-1].text == "Alice"
 
 
 def test_deepseek_official_payload_uses_output_limit_supported_by_chat_completions():
-    model = DeepSeekChatOpenAI(
-        api_key="test-key",
-        base_url="https://api.deepseek.com/v1",
-        model="deepseek-flash",
-        max_tokens=256,
-        extra_body={"thinking": {"type": "disabled"}},
-    )
-    payload = model._get_request_payload([HumanMessage(content="Test")], max_tokens=128)
-    assert payload["max_tokens"] == 128
-    assert "max_completion_tokens" not in payload
-    assert payload["extra_body"]["thinking"] == {"type": "disabled"}
+    import httpx
+
+    def respond(request):
+        assert request.method == "POST" and request.url.path == "/chat/completions"
+        payload = json.loads(request.content)
+        assert payload["max_tokens"] == 128
+        assert payload["model"] == "deepseek-flash"
+        assert "max_completion_tokens" not in payload
+        assert payload["thinking"] == {"type": "disabled"}
+        return httpx.Response(
+            200,
+            json={
+                "id": "mock",
+                "model": "deepseek-flash",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "Model reply"},
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        model = DeepSeekChatOpenAI(
+            api_key="test-key",
+            base_url="https://api.deepseek.com",
+            model="deepseek-flash",
+            max_tokens=256,
+            extra_body={"thinking": {"type": "disabled"}},
+            http_client=client,
+        )
+        reply = model.invoke([HumanMessage(content="Test")], max_tokens=128)
+
+    assert reply.text == "Model reply"
+    assert reply.usage_metadata["total_tokens"] == 12
