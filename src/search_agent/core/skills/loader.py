@@ -1,10 +1,21 @@
 """运行时技能发现、正文加载和附属资源的渐进式访问接口。"""
 
+import base64
+import re
 from pathlib import Path
+from typing import Final
 
 from search_agent.core.config import get_config
 
 from .schemas import SkillInfo, SkillResource, SkillResourceContent
+
+_RESOURCE_DIRS: Final[dict[str, str]] = {
+    "scripts": "script",
+    "references": "reference",
+    "assets": "asset",
+}
+_FRONTMATTER = re.compile(r"\A---\s*\r?\n(.*?)\r?\n---\s*(?:\r?\n|$)", re.DOTALL)
+_FIELD = re.compile(r"^(name|description):\s*(.*?)\s*$")
 
 
 class SkillLoader:
@@ -21,30 +32,109 @@ class SkillLoader:
     def discover(self) -> list[SkillInfo]:
         """扫描技能子目录，提取 SKILL.md 的 name、description 和目录位置。
 
-        TODO：读取 YAML frontmatter，返回元数据列表供主模型选择。
         默认技能文件符合规范，不实现重复名称、路径或格式校验。
         """
-        raise NotImplementedError
+        if not self.root.is_dir():
+            return []
+        skills: list[SkillInfo] = []
+        for directory in sorted(self.root.iterdir()):
+            skill_file = directory / "SKILL.md"
+            if not directory.is_dir() or not skill_file.is_file():
+                continue
+            metadata = _parse_frontmatter(skill_file.read_text(encoding="utf-8"))
+            name = metadata.get("name")
+            description = metadata.get("description")
+            if not name or not description:
+                raise ValueError(f"{skill_file} must define name and description in frontmatter")
+            skills.append(
+                SkillInfo(name=name, description=description, directory=directory.resolve())
+            )
+        return skills
 
     def list_resources(self, name: str) -> list[SkillResource]:
-        """输入技能名称，返回 scripts/references/assets 内文件的相对路径和类型。
-
-        TODO：按需列出资源；load_skill 应同时返回清单，让主模型知道后续可读取什么。
-        """
-        raise NotImplementedError
+        """输入技能名称，返回 scripts/references/assets 内文件的相对路径和类型。"""
+        directory = self._skill_directory(name)
+        resources: list[SkillResource] = []
+        for folder, kind in _RESOURCE_DIRS.items():
+            resource_root = directory / folder
+            if not resource_root.is_dir():
+                continue
+            for path in sorted(resource_root.rglob("*")):
+                if path.is_file() and _is_within(path, directory):
+                    resources.append(
+                        SkillResource(path=path.relative_to(directory).as_posix(), kind=kind)
+                    )
+        return resources
 
     def read_resource(self, name: str, path: str) -> SkillResourceContent:
         """读取技能内相对路径，返回内容与编码。
 
-        TODO：解析相对路径，文本读取 UTF-8，二进制资产编码 base64；
-        路径必须限制在当前技能目录内，包括符号链接的最终目标。
+        路径限制在当前技能目录内，包括符号链接的最终目标。
         """
-        raise NotImplementedError
+        directory = self._skill_directory(name)
+        resource = _safe_path(directory, path)
+        if resource == directory or resource.parent.name not in _RESOURCE_DIRS:
+            raise ValueError("resource must be inside scripts, references, or assets")
+        if not resource.is_file():
+            raise FileNotFoundError(f"skill resource not found: {path}")
+        data = resource.read_bytes()
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError:
+            content = base64.b64encode(data).decode("ascii")
+            encoding = "base64"
+        else:
+            encoding = "utf-8"
+        return SkillResourceContent(
+            path=resource.relative_to(directory).as_posix(), content=content, encoding=encoding
+        )
 
     def load(self, name: str) -> str:
         """读取 root/name/SKILL.md 的 Markdown 正文。
 
-        TODO：移除 YAML frontmatter 后返回正文，由 middleware 按轮次注入。
         完整技能指令不能永久写入 agent 的基础 system prompt。
         """
-        raise NotImplementedError
+        skill_file = _safe_path(self._skill_directory(name), "SKILL.md")
+        text = skill_file.read_text(encoding="utf-8")
+        match = _FRONTMATTER.match(text)
+        if match is None:
+            raise ValueError(f"{skill_file} is missing YAML frontmatter")
+        return text[match.end() :].lstrip()
+
+    def _skill_directory(self, name: str) -> Path:
+        if not name or Path(name).name != name:
+            raise ValueError("skill name must be a single directory name")
+        for skill in self.discover():
+            if skill.name == name:
+                return skill.directory
+        raise FileNotFoundError(f"skill not found: {name}")
+
+
+def _parse_frontmatter(text: str) -> dict[str, str]:
+    match = _FRONTMATTER.match(text)
+    if match is None:
+        raise ValueError("SKILL.md is missing YAML frontmatter")
+    values: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        field = _FIELD.match(line)
+        if field:
+            value = field.group(2).strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            values[field.group(1)] = value
+    return values
+
+
+def _safe_path(root: Path, relative: str) -> Path:
+    candidate = (root / relative).resolve()
+    if not _is_within(candidate, root.resolve()):
+        raise ValueError("path escapes the skill directory")
+    return candidate
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
